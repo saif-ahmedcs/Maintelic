@@ -24,6 +24,7 @@ import { TelemetryModule } from './telemetry/telemetry.module';
 import { BullModule } from '@nestjs/bullmq';
 import { ConditionMonitoringModule } from './condition-monitoring/condition-monitoring.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ClientErrorsModule } from './client-errors/client-errors.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UserThrottlerGuard } from './common/throttler/user-throttler.guard';
@@ -85,6 +86,7 @@ import { defaultThrottleLimit } from './common/throttler/default-throttle';
     TelemetryModule,
     NotificationsModule,
     ConditionMonitoringModule,
+    ClientErrorsModule,
   ],
   controllers: [AppController],
   providers: [
