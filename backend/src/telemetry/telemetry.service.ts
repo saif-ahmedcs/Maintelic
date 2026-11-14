@@ -108,6 +108,28 @@ export class TelemetryService {
     };
   }
 
+  async getLatestBatch(
+    assetIds: string[],
+  ): Promise<Record<string, TelemetryReadingResponseDto>> {
+    if (assetIds.length === 0) {
+      return {};
+    }
+
+    const latestPerAsset = await this.readings
+      .createQueryBuilder('reading')
+      .distinctOn(['reading.assetId'])
+      .where('reading.assetId IN (:...assetIds)', { assetIds })
+      .orderBy('reading.assetId', 'ASC')
+      .addOrderBy('reading.recordedAt', 'DESC')
+      .getMany();
+
+    const result: Record<string, TelemetryReadingResponseDto> = {};
+    for (const reading of latestPerAsset) {
+      result[reading.assetId] = TelemetryReadingResponseDto.fromEntity(reading);
+    }
+    return result;
+  }
+
   async getSummary(since: string): Promise<TelemetrySummaryResponseDto> {
     const summary = await this.readings
       .createQueryBuilder('reading')

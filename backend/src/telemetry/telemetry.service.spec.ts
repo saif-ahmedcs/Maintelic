@@ -190,6 +190,107 @@ describe('TelemetryService', () => {
     });
   });
 
+  describe('getLatestBatch', () => {
+    let qb: {
+      distinctOn: jest.Mock;
+      where: jest.Mock;
+      orderBy: jest.Mock;
+      addOrderBy: jest.Mock;
+      getMany: jest.Mock;
+    };
+
+    const assetTwoId = '2d1e9b3a-7c3b-4e3a-9e3a-1a2b3c4d5e6f';
+    const unknownAssetId = '00000000-0000-4000-8000-000000000000';
+
+    const row = (overrides: Partial<typeof dbRow>) => ({
+      ...dbRow,
+      ...overrides,
+    });
+
+    const dbRow = {
+      id: 'row-1',
+      assetId: reading.assetId,
+      temperature: 44.9,
+      vibration: 2.1,
+      pressure: 5.9,
+      recordedAt: new Date('2026-09-24T09:59:59.000Z'),
+      ingestedAt: new Date('2026-09-24T10:00:00.000Z'),
+    };
+
+    beforeEach(() => {
+      qb = {
+        distinctOn: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn(),
+      };
+      readingRepo.createQueryBuilder.mockReturnValue(qb);
+    });
+
+    it('returns {} without querying when no asset IDs are given', async () => {
+      const result = await service.getLatestBatch([]);
+
+      expect(result).toEqual({});
+      expect(readingRepo.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('issues exactly one query for the batch, selecting distinct on assetId', async () => {
+      qb.getMany.mockResolvedValue([row({})]);
+
+      await service.getLatestBatch([reading.assetId, assetTwoId]);
+
+      expect(readingRepo.createQueryBuilder).toHaveBeenCalledTimes(1);
+      expect(qb.getMany).toHaveBeenCalledTimes(1);
+      expect(qb.distinctOn).toHaveBeenCalledWith(['reading.assetId']);
+      expect(qb.where).toHaveBeenCalledWith('reading.assetId IN (:...assetIds)', {
+        assetIds: [reading.assetId, assetTwoId],
+      });
+      expect(qb.orderBy).toHaveBeenCalledWith('reading.assetId', 'ASC');
+      expect(qb.addOrderBy).toHaveBeenCalledWith('reading.recordedAt', 'DESC');
+    });
+
+    it('maps each returned row onto its asset ID, in the response DTO shape', async () => {
+      qb.getMany.mockResolvedValue([
+        row({ assetId: reading.assetId }),
+        row({ assetId: assetTwoId, temperature: 50.1 }),
+      ]);
+
+      const result = await service.getLatestBatch([
+        reading.assetId,
+        assetTwoId,
+      ]);
+
+      expect(result).toEqual({
+        [reading.assetId]: {
+          assetId: reading.assetId,
+          temperature: 44.9,
+          vibration: 2.1,
+          pressure: 5.9,
+          recordedAt: '2026-09-24T09:59:59.000Z',
+        },
+        [assetTwoId]: {
+          assetId: assetTwoId,
+          temperature: 50.1,
+          vibration: 2.1,
+          pressure: 5.9,
+          recordedAt: '2026-09-24T09:59:59.000Z',
+        },
+      });
+    });
+
+    it('omits requested asset IDs with no matching row (unknown or reading-less)', async () => {
+      qb.getMany.mockResolvedValue([row({ assetId: reading.assetId })]);
+
+      const result = await service.getLatestBatch([
+        reading.assetId,
+        unknownAssetId,
+      ]);
+
+      expect(Object.keys(result)).toEqual([reading.assetId]);
+    });
+  });
+
   describe('getSummary', () => {
     let qb: {
       select: jest.Mock;
