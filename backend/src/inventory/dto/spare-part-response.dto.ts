@@ -26,6 +26,9 @@ export class SparePartResponseDto {
   @ApiProperty({ description: 'Derived: quantityOnHand <= reorderThreshold' })
   isLowStock: boolean;
 
+  @ApiProperty({ description: 'Derived: quantityOnHand === 0' })
+  isOutOfStock: boolean;
+
   static fromEntity(part: SparePart): SparePartResponseDto {
     const dto = new SparePartResponseDto();
     dto.id = part.id;
@@ -35,6 +38,7 @@ export class SparePartResponseDto {
     dto.reorderThreshold = part.reorderThreshold;
     dto.unitCost = part.unitCost;
     dto.isLowStock = part.quantityOnHand <= part.reorderThreshold;
+    dto.isOutOfStock = part.quantityOnHand === 0;
     return dto;
   }
 }

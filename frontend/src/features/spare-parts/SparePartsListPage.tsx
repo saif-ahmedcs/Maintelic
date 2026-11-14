@@ -131,7 +131,7 @@ export default function SparePartsListPage() {
       header: 'Status',
       align: 'right',
       render: (row) =>
-        row.quantityOnHand === 0 ? (
+        row.isOutOfStock ? (
           <StatusTag status="OUT" />
         ) : row.isLowStock ? (
           <StatusTag status="LOW_STOCK" />

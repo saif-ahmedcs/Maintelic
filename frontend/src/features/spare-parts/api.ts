@@ -10,6 +10,7 @@ export const sparePartSchema = z.object({
   reorderThreshold: z.number(),
   unitCost: z.number(),
   isLowStock: z.boolean(),
+  isOutOfStock: z.boolean(),
 });
 export type SparePart = z.infer<typeof sparePartSchema>;
 

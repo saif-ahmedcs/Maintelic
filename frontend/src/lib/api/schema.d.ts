@@ -920,6 +920,8 @@ export interface components {
       unitCost: number;
       /** @description Derived: quantityOnHand <= reorderThreshold */
       isLowStock: boolean;
+      /** @description Derived: quantityOnHand === 0 */
+      isOutOfStock: boolean;
     };
     CreateSparePartDto: {
       /** @example BRG-6205 */

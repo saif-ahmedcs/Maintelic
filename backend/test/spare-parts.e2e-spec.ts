@@ -21,6 +21,7 @@ interface PartBody {
   reorderThreshold: number;
   unitCost: number;
   isLowStock: boolean;
+  isOutOfStock: boolean;
 }
 
 interface AuditEntryBody {
@@ -209,6 +210,7 @@ describe('Spare parts API (e2e)', () => {
         reorderThreshold: 2,
         unitCost: 12.5,
         isLowStock: false,
+        isOutOfStock: false,
       });
 
       const transactions = await loadTransactions(res.body.id);
@@ -231,6 +233,7 @@ describe('Spare parts API (e2e)', () => {
       expect(part.quantityOnHand).toBe(0);
       expect(part.reorderThreshold).toBe(0);
       expect(part.isLowStock).toBe(true); // 0 <= 0
+      expect(part.isOutOfStock).toBe(true);
       expect(await loadTransactions(part.id)).toHaveLength(0);
     });
 
@@ -290,6 +293,7 @@ describe('Spare parts API (e2e)', () => {
         unitCost: 9.99,
         quantityOnHand: 5,
         isLowStock: true, // 5 <= 7
+        isOutOfStock: false,
       });
 
       const audit = await auditEntries(part.id);
@@ -480,6 +484,9 @@ describe('Spare parts API (e2e)', () => {
       expect(below.isLowStock).toBe(true);
       expect(atThreshold.isLowStock).toBe(true);
       expect(healthy.isLowStock).toBe(false);
+      expect(below.isOutOfStock).toBe(false);
+      expect(atThreshold.isOutOfStock).toBe(false);
+      expect(healthy.isOutOfStock).toBe(false);
       expect(await countByLowStock(true)).toBe(lowBefore + 2);
       expect(await countByLowStock(false)).toBe(okBefore + 1);
 
@@ -528,6 +535,7 @@ describe('Spare parts API (e2e)', () => {
 
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0]).toHaveProperty('isLowStock');
+      expect(res.body.data[0]).toHaveProperty('isOutOfStock');
       expect(res.body.meta.page).toBe(1);
       expect(res.body.meta.limit).toBe(1);
       expect(res.body.meta.total).toBeGreaterThanOrEqual(2);

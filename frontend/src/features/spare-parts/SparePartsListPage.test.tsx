@@ -55,6 +55,7 @@ function makePart(overrides: Partial<SparePart>): SparePart {
     reorderThreshold: 5,
     unitCost: 1,
     isLowStock: false,
+    isOutOfStock: false,
     ...overrides,
   };
 }
@@ -88,6 +89,7 @@ describe('SparePartsListPage', () => {
       quantityOnHand: 10,
       reorderThreshold: 10,
       isLowStock: true,
+      isOutOfStock: false,
     });
     const aboveThreshold = makePart({
       id: 'sp-above-threshold',
@@ -95,6 +97,7 @@ describe('SparePartsListPage', () => {
       quantityOnHand: 11,
       reorderThreshold: 10,
       isLowStock: false,
+      isOutOfStock: false,
     });
     const zeroStock = makePart({
       id: 'sp-zero',
@@ -102,6 +105,7 @@ describe('SparePartsListPage', () => {
       quantityOnHand: 0,
       reorderThreshold: 5,
       isLowStock: true,
+      isOutOfStock: true,
     });
 
     server.use(
@@ -149,6 +153,7 @@ describe('SparePartsListPage', () => {
               quantityOnHand: currentQuantity,
               reorderThreshold: 10,
               isLowStock: currentQuantity <= 10,
+              isOutOfStock: currentQuantity === 0,
             }),
           ],
           meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
@@ -163,6 +168,7 @@ describe('SparePartsListPage', () => {
             quantityOnHand: currentQuantity,
             reorderThreshold: 10,
             isLowStock: false,
+            isOutOfStock: false,
           }),
           transaction: {},
         });

@@ -13,6 +13,7 @@ const PART: SparePart = {
   reorderThreshold: 5,
   unitCost: 12.5,
   isLowStock: false,
+  isOutOfStock: false,
 };
 
 function renderDialog() {
