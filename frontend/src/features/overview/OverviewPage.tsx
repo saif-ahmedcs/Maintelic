@@ -15,6 +15,7 @@ import { NotificationItem } from '../alerts/NotificationItem';
 import { listAssets } from '../assets/api';
 import { listDuePlans } from '../plans/api';
 import { listSpareParts } from '../spare-parts/api';
+import { getTelemetrySummary } from '../telemetry/api';
 import { listWorkOrders } from '../work-orders/api';
 import { WorkOrderRow } from '../work-orders/WorkOrderRow';
 
@@ -98,6 +99,12 @@ export default function OverviewPage() {
     refetchInterval: POLL_INTERVAL_MS,
   });
 
+  const telemetrySummary = useQuery({
+    queryKey: ['telemetry', 'summary'],
+    queryFn: () => getTelemetrySummary(),
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+
   const workOrderQueue = useQuery({
     queryKey: ['work-orders', 'list', { status: 'OPEN', limit: 5 }],
     queryFn: () => listWorkOrders({ status: 'OPEN', limit: 5 }),
@@ -157,11 +164,14 @@ export default function OverviewPage() {
           error={lowStockParts.error}
           onRetry={() => lowStockParts.refetch()}
         />
-        {/* No GET /telemetry/summary endpoint yet (backend gap, flagged to
-            the user) — static placeholder until Phase 11 wires this up. */}
-        <Surface tone="kelp">
-          <Stat label="Readings last hour" value="—" />
-        </Surface>
+        <CounterTile
+          label="Readings last hour"
+          total={telemetrySummary.data?.readingCount}
+          isPending={telemetrySummary.isPending}
+          isError={telemetrySummary.isError}
+          error={telemetrySummary.error}
+          onRetry={() => telemetrySummary.refetch()}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

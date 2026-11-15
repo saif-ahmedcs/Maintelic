@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { STATUS_CODES } from 'node:http';
 import { Request, Response } from 'express';
 import { QueryFailedError } from 'typeorm';
 import { RequestContext } from '../context/request-context';
@@ -22,6 +23,20 @@ interface ErrorResponseBody {
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 const POSTGRES_FOREIGN_KEY_VIOLATION = '23503';
 const POSTGRES_NOT_NULL_VIOLATION = '23502';
+
+/**
+ * Express middleware (body-parser, raw-body, ...) reports client mistakes as
+ * `http-errors` instances, not Nest `HttpException`s: a 413 PayloadTooLargeError
+ * for an oversized body, a 400 SyntaxError for malformed JSON, and so on. They
+ * carry a numeric `status`/`statusCode` and `expose: true` (http-errors only
+ * sets it for 4xx), which marks the message as safe to return to the client.
+ */
+interface ExposedHttpError {
+  status?: number;
+  statusCode?: number;
+  expose?: boolean;
+  message: string;
+}
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -84,10 +99,43 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return this.resolveDatabaseError(exception);
     }
 
+    const clientError = this.asExposedClientError(exception);
+    if (clientError) {
+      return clientError;
+    }
+
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       error: 'Internal Server Error',
       message: 'An unexpected error occurred',
+    };
+  }
+
+  private asExposedClientError(exception: unknown): {
+    statusCode: number;
+    error: string;
+    message: string;
+  } | null {
+    if (!(exception instanceof Error)) {
+      return null;
+    }
+
+    const candidate = exception as Error & ExposedHttpError;
+    const statusCode = candidate.status ?? candidate.statusCode;
+
+    if (
+      candidate.expose !== true ||
+      typeof statusCode !== 'number' ||
+      statusCode < HttpStatus.BAD_REQUEST ||
+      statusCode >= HttpStatus.INTERNAL_SERVER_ERROR
+    ) {
+      return null;
+    }
+
+    return {
+      statusCode,
+      error: STATUS_CODES[statusCode] ?? 'Bad Request',
+      message: candidate.message,
     };
   }
 

@@ -1,7 +1,11 @@
 import { HttpResponse, http } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../test/msw/server';
-import { MAX_TELEMETRY_HISTORY_LIMIT, getTelemetryHistory } from './api';
+import {
+  MAX_TELEMETRY_HISTORY_LIMIT,
+  getTelemetryHistory,
+  getTelemetrySummary,
+} from './api';
 
 const ASSET_ID = '82ecdb88-9d1e-40af-a62d-752ce0de007a';
 
@@ -57,5 +61,67 @@ describe('getTelemetryHistory', () => {
       '2026-11-09T10:00:02.000Z',
       '2026-11-09T10:00:03.000Z',
     ]);
+  });
+});
+
+describe('getTelemetrySummary', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-09T11:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('defaults `since` to one hour before now', async () => {
+    let requestedSince: string | null = null;
+    server.use(
+      http.get('/telemetry/summary', ({ request }) => {
+        requestedSince = new URL(request.url).searchParams.get('since');
+        return HttpResponse.json({
+          readingCount: 42,
+          assetCount: 3,
+          since: requestedSince,
+        });
+      }),
+    );
+
+    const result = await getTelemetrySummary();
+
+    expect(requestedSince).toBe('2026-11-09T10:00:00.000Z');
+    expect(result).toEqual({
+      readingCount: 42,
+      assetCount: 3,
+      since: '2026-11-09T10:00:00.000Z',
+    });
+  });
+
+  it('uses an explicit `since` when provided, instead of the default', async () => {
+    let requestedSince: string | null = null;
+    server.use(
+      http.get('/telemetry/summary', ({ request }) => {
+        requestedSince = new URL(request.url).searchParams.get('since');
+        return HttpResponse.json({
+          readingCount: 0,
+          assetCount: 0,
+          since: requestedSince,
+        });
+      }),
+    );
+
+    await getTelemetrySummary({ since: '2026-01-01T00:00:00.000Z' });
+
+    expect(requestedSince).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('throws when the response does not match the expected shape', async () => {
+    server.use(
+      http.get('/telemetry/summary', () =>
+        HttpResponse.json({ readingCount: 'not-a-number' }),
+      ),
+    );
+
+    await expect(getTelemetrySummary()).rejects.toThrow();
   });
 });

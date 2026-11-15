@@ -139,6 +139,88 @@ describe('AllExceptionsFilter', () => {
     expect(JSON.stringify(body)).not.toContain('sensitive');
   });
 
+  function httpError(
+    message: string,
+    props: { status?: number; statusCode?: number; expose?: boolean },
+    ErrorType: ErrorConstructor = Error,
+  ): Error {
+    return Object.assign(new ErrorType(message), props);
+  }
+
+  it('maps a body-parser PayloadTooLargeError (http-errors, status 413) to 413, not 500', () => {
+    const { host, status, json } = mockHost();
+    const error = httpError('request entity too large', {
+      status: 413,
+      statusCode: 413,
+      expose: true,
+    });
+    error.name = 'PayloadTooLargeError';
+
+    filter.catch(error, host);
+
+    expect(status).toHaveBeenCalledWith(413);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 413,
+        error: 'Payload Too Large',
+        message: 'request entity too large',
+      }),
+    );
+  });
+
+  it('maps a body-parser malformed-JSON SyntaxError (status 400) to 400, not 500', () => {
+    const { host, status, json } = mockHost();
+
+    filter.catch(
+      httpError(
+        'Unexpected token } in JSON at position 5',
+        { status: 400, statusCode: 400, expose: true },
+        SyntaxError,
+      ),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({ statusCode: 400, error: 'Bad Request' }),
+    );
+  });
+
+  it('uses statusCode when an exposed error has no status field', () => {
+    const { host, status } = mockHost();
+
+    filter.catch(
+      httpError('too many', { statusCode: 429, expose: true }),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(429);
+  });
+
+  it('does not trust a 4xx-looking error that is not marked expose=true', () => {
+    const { host, status, json } = mockHost();
+
+    filter.catch(
+      httpError('internal detail that must not leak', { status: 400 }),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(JSON.stringify(json.mock.calls[0][0])).not.toContain('leak');
+  });
+
+  it('does not pass through an exposed-looking error with a 5xx status', () => {
+    const { host, status, json } = mockHost();
+
+    filter.catch(
+      httpError('upstream exploded', { status: 502, expose: true }),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(JSON.stringify(json.mock.calls[0][0])).not.toContain('upstream');
+  });
+
   it('maps a non-Error thrown value (e.g. a string) to the same 500 shape', () => {
     const { host, status, json } = mockHost();
 

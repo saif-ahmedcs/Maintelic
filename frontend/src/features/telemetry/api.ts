@@ -15,7 +15,7 @@ export const telemetryReadingSchema = z.object({
 });
 export type TelemetryReading = z.infer<typeof telemetryReadingSchema>;
 
-/** GET /assets/:id/telemetry/latest. Throws ApiError with status 404 when the asset has no readings yet. */
+/* GET /assets/:id/telemetry/latest */
 export async function getLatestTelemetry(
   assetId: string,
 ): Promise<TelemetryReading> {
@@ -42,4 +42,32 @@ export async function getTelemetryHistory(
   });
   const page = paginated(telemetryReadingSchema).parse(data);
   return { ...page, data: [...page.data].reverse() };
+}
+
+export const ONE_HOUR_MS = 60 * 60 * 1000;
+
+export const telemetrySummarySchema = z.object({
+  readingCount: z.number(),
+  assetCount: z.number(),
+  since: z.string(),
+});
+export type TelemetrySummary = z.infer<typeof telemetrySummarySchema>;
+
+export function oneHourAgoIso(): string {
+  return new Date(Date.now() - ONE_HOUR_MS).toISOString();
+}
+
+export interface GetTelemetrySummaryParams {
+  since?: string;
+}
+
+/** GET /telemetry/summary?since=<ISO>.*/
+export async function getTelemetrySummary(
+  params: GetTelemetrySummaryParams = {},
+): Promise<TelemetrySummary> {
+  const since = params.since ?? oneHourAgoIso();
+  const data = await request<unknown>('/telemetry/summary', {
+    query: { since },
+  });
+  return telemetrySummarySchema.parse(data);
 }

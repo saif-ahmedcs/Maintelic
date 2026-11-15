@@ -13,6 +13,7 @@ const API_PREFIXES = [
   '/work-orders',
   '/spare-parts',
   '/notifications',
+  '/telemetry',
   '/audit',
   '/health',
 ];

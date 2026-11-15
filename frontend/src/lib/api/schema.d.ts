@@ -125,6 +125,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/auth/password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /**
+     * Change the current user’s own password
+     * @description Verifies currentPassword, requires newPassword to be at least 12 characters, and revokes every other live refresh token for this user — the session that presents a live refresh_token cookie on this request is kept; every other session is signed out.
+     */
+    patch: operations['AuthController_changePassword'];
+    trace?: never;
+  };
   '/auth/me': {
     parameters: {
       query?: never;
@@ -178,6 +198,26 @@ export interface paths {
      * @description Deactivating revokes all of the user’s refresh tokens. Deactivating the last active ADMIN returns 409.
      */
     patch: operations['UsersController_update'];
+    trace?: never;
+  };
+  '/users/{id}/reset-password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Generate a new temporary password for a user and force a password change at next sign-in (ADMIN)
+     * @description Returns the temporary password once; it is hashed before storage and cannot be retrieved again. Revokes all of this user’s refresh tokens.
+     */
+    post: operations['UsersController_resetPassword'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   '/users/{id}/roles': {
@@ -454,6 +494,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/spare-parts/{id}/transactions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List a spare part's inventory transactions, newest first */
+    get: operations['SparePartsController_findTransactions'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/spare-parts/{id}': {
     parameters: {
       query?: never;
@@ -670,6 +727,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/telemetry/summary': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Count telemetry readings and distinct assets since a timestamp
+     * @description `since` is required (ISO 8601); there is no default range, and an invalid or missing value returns 400.
+     */
+    get: operations['TelemetrySummaryController_getSummary'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/telemetry/latest': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get the latest reading for several assets in one request
+     * @description Accepts up to 50 comma-separated asset IDs and returns, in a single database query, a map from asset ID to its latest reading. Assets with no readings, and unknown asset IDs, are simply omitted from the response. More than 50 IDs returns 400.
+     */
+    get: operations['TelemetryLatestController_getLatestBatch'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/notifications': {
     parameters: {
       query?: never;
@@ -721,6 +818,26 @@ export interface paths {
     patch: operations['NotificationsController_resolve'];
     trace?: never;
   };
+  '/client-errors': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Report a frontend error for observability (Phase 27)
+     * @description Writes a single structured log line; nothing is stored in the database. Throttled to 20 requests per minute per user.
+     */
+    post: operations['ClientErrorsController_report'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -740,6 +857,12 @@ export interface components {
     RefreshDto: {
       /** @description The refresh token issued at login or by a previous call to this endpoint. Optional when the refresh_token httpOnly cookie is present — the cookie is preferred and this field is kept only as a fallback for clients that cannot use cookies. */
       refreshToken?: string;
+    };
+    ChangePasswordDto: {
+      /** @example CorrectHorseBattery9! */
+      currentPassword: string;
+      /** @example EvenStrongerPassword123! */
+      newPassword: string;
     };
     UserResponseDto: {
       id: string;
@@ -923,6 +1046,25 @@ export interface components {
       /** @description Derived: quantityOnHand === 0 */
       isOutOfStock: boolean;
     };
+    InventoryTransactionResponseDto: {
+      id: string;
+      sparePartId: string;
+      /** @description Positive for restock, negative for consumption */
+      deltaQuantity: number;
+      /** @enum {string} */
+      reason: 'CONSUMED' | 'RESTOCK' | 'ADJUSTMENT';
+      workOrderId: Record<string, never> | null;
+      /** @description User who performed this stock movement */
+      createdByUserId: Record<string, never> | null;
+      /** @description quantityOnHand immediately before this transaction */
+      quantityBefore: number;
+      /** @description quantityOnHand immediately after this transaction */
+      quantityAfter: number;
+      /** @description Deprecated alias for quantityAfter, retained for existing API consumers */
+      resultingQuantity: number;
+      /** Format: date-time */
+      createdAt: string;
+    };
     CreateSparePartDto: {
       /** @example BRG-6205 */
       sku: string;
@@ -1024,6 +1166,14 @@ export interface components {
       /** @description ISO 8601 timestamp set by the publisher, not the ingestion time */
       recordedAt: string;
     };
+    TelemetrySummaryResponseDto: {
+      /** @description Number of telemetry readings recorded since `since` */
+      readingCount: number;
+      /** @description Number of distinct assets with at least one telemetry reading since `since` */
+      assetCount: number;
+      /** @description Echoes the `since` query parameter */
+      since: string;
+    };
     NotificationResponseDto: {
       id: string;
       /** @enum {string} */
@@ -1039,6 +1189,18 @@ export interface components {
       createdAt: string;
       resolvedAt: Record<string, never> | null;
       resolvedByUserId: Record<string, never> | null;
+    };
+    CreateClientErrorDto: {
+      /** @description Human-readable error message as the client saw it */
+      message: string;
+      /** @description Stack trace, when the client has one. Not every client error has a stack trace. */
+      stack?: string;
+      /** @description Client-side route the error occurred on (query string stripped by the client) */
+      route: string;
+      /** @description Server-generated ID (x-request-id) of the earlier failed request this error reports on, sent when available */
+      requestId?: string;
+      /** @description Version of the frontend build that reported the error */
+      appVersion: string;
     };
   };
   responses: never;
@@ -1254,7 +1416,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Access token, refresh token, and the authenticated user. The refresh token is also set as an httpOnly cookie, scoped to /auth. */
+      /** @description Access token, refresh token, and whether this account must change its password before doing anything else (`mustChangePassword`). The refresh token is also set as an httpOnly cookie, scoped to /auth. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -1315,6 +1477,28 @@ export interface operations {
     };
     responses: {
       204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  AuthController_changePassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ChangePasswordDto'];
+      };
+    };
+    responses: {
+      /** @description Current password is incorrect */
+      401: {
         headers: {
           [name: string]: unknown;
         };
@@ -1413,6 +1597,27 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['UserResponseDto'];
+        };
+      };
+    };
+  };
+  UsersController_resetPassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CreateUserResponseDto'];
         };
       };
     };
@@ -2150,6 +2355,34 @@ export interface operations {
       };
     };
   };
+  SparePartsController_findTransactions: {
+    parameters: {
+      query?: {
+        page?: number;
+        limit?: number;
+        /** @description Column to sort by (resource-specific) */
+        sortBy?: string;
+        sortDir?: 'ASC' | 'DESC' | 'asc' | 'desc';
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paginated stock movement history. Each row includes before/after quantities, movement reason, and actor. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['InventoryTransactionResponseDto'][];
+        };
+      };
+    };
+  };
   SparePartsController_findOne: {
     parameters: {
       query?: never;
@@ -2551,6 +2784,53 @@ export interface operations {
       };
     };
   };
+  TelemetrySummaryController_getSummary: {
+    parameters: {
+      query: {
+        /** @description ISO 8601 timestamp; inclusive lower bound on recordedAt. Required — there is no default range. */
+        since: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TelemetrySummaryResponseDto'];
+        };
+      };
+    };
+  };
+  TelemetryLatestController_getLatestBatch: {
+    parameters: {
+      query: {
+        /** @description Comma-separated list of asset IDs (UUID). Maximum 50; exceeding it returns 400. Unknown asset IDs are omitted from the response rather than erroring. */
+        assetIds: string[];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Map from asset ID to its latest telemetry reading. Assets with no matching reading are omitted. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: components['schemas']['TelemetryReadingResponseDto'];
+          };
+        };
+      };
+    };
+  };
   NotificationsController_findAll: {
     parameters: {
       query?: {
@@ -2620,6 +2900,35 @@ export interface operations {
         content: {
           'application/json': components['schemas']['NotificationResponseDto'];
         };
+      };
+    };
+  };
+  ClientErrorsController_report: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateClientErrorDto'];
+      };
+    };
+    responses: {
+      /** @description Logged */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Throttle limit exceeded */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };
