@@ -15,7 +15,12 @@ describe('Telemetry Summary (e2e)', () => {
   let assetTwoId: string;
   let assetThreeId: string;
 
-  const since = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  // /telemetry/summary counts readings globally (it has no asset filter), so
+  // this suite needs a time window no other suite writes into. Other suites
+  // insert readings at "now" or "now + 24h"; a fixed far-future instant keeps
+  // this fixture isolated no matter which order the suites run in, or how many
+  // times they have run against the same database.
+  const since = '2100-01-01T00:00:00.000Z';
   const afterSince = [
     since,
     new Date(Date.parse(since) + 5 * 60 * 1000).toISOString(),
@@ -44,6 +49,13 @@ describe('Telemetry Summary (e2e)', () => {
         emailPrefix: 'telemetry-summary-e2e-admin',
       })
     ).accessToken;
+
+    // Leftovers from an earlier aborted run on a reused database would skew
+    // the global counts asserted below.
+    await dataSource.query(
+      `DELETE FROM telemetry_readings WHERE recorded_at >= $1`,
+      [beforeSince],
+    );
 
     const tag = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
@@ -101,6 +113,10 @@ describe('Telemetry Summary (e2e)', () => {
   });
 
   afterAll(async () => {
+    await dataSource.query(
+      `DELETE FROM telemetry_readings WHERE recorded_at >= $1`,
+      [beforeSince],
+    );
     await app.close();
   });
 

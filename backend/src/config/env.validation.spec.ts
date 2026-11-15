@@ -1,4 +1,7 @@
-import { envValidationSchema } from './env.validation';
+import {
+  envValidationSchema,
+  KNOWN_INSECURE_JWT_SECRETS,
+} from './env.validation';
 
 const baseEnv = {
   POSTGRES_HOST: 'localhost',
@@ -71,6 +74,69 @@ describe('envValidationSchema — MQTT auth', () => {
   it('boots with MQTT_BACKEND_PASSWORD set', () => {
     const { error } = envValidationSchema.validate(baseEnv);
     expect(error).toBeUndefined();
+  });
+});
+
+describe('envValidationSchema — production JWT_SECRET boot check', () => {
+  it('fails to boot in production with a secret shorter than 32 characters', () => {
+    const { error } = envValidationSchema.validate({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      JWT_SECRET: 'x'.repeat(31),
+    });
+    expect(error).toBeDefined();
+    expect(error?.message).toContain('JWT_SECRET');
+  });
+
+  it.each(KNOWN_INSECURE_JWT_SECRETS)(
+    'fails to boot in production with the known placeholder value %p',
+    (placeholder) => {
+      const { error } = envValidationSchema.validate({
+        ...baseEnv,
+        NODE_ENV: 'production',
+        JWT_SECRET: placeholder,
+      });
+      expect(error).toBeDefined();
+    },
+  );
+
+  it('rejects a known placeholder in production even when it is 32+ characters on its own (not just caught by the length rule)', () => {
+    const longPlaceholder = 'example-secret-key-change-in-production';
+    expect(longPlaceholder.length).toBeGreaterThanOrEqual(32);
+    const { error } = envValidationSchema.validate({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      JWT_SECRET: longPlaceholder,
+    });
+    expect(error).toBeDefined();
+    expect(error?.message).toContain('placeholder');
+  });
+
+  it('allows a known placeholder value outside production as long as it is 32+ characters (existing dev behavior preserved)', () => {
+    const { error } = envValidationSchema.validate({
+      ...baseEnv,
+      NODE_ENV: 'development',
+      JWT_SECRET: 'example-secret-key-change-in-production',
+    });
+    expect(error).toBeUndefined();
+  });
+
+  it('boots in production with a long, unique secret', () => {
+    const { error } = envValidationSchema.validate({
+      ...baseEnv,
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a-sufficiently-long-and-unique-production-secret',
+    });
+    expect(error).toBeUndefined();
+  });
+
+  it('still enforces the 32-character minimum outside production (existing behavior preserved)', () => {
+    const { error } = envValidationSchema.validate({
+      ...baseEnv,
+      NODE_ENV: 'development',
+      JWT_SECRET: 'x'.repeat(31),
+    });
+    expect(error).toBeDefined();
   });
 });
 

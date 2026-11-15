@@ -171,11 +171,28 @@ jobs:
   frontend:
     needs: export-openapi
     runs-on: ubuntu-latest
+    # contents: write lets the "Sync API types" step commit the regenerated
+    # frontend/src/lib/api/schema.d.ts back to same-repo PR branches.
+    permissions:
+      contents: write
+    env:
+      # Only same-repo PRs get auto-fixed. Pushes to main and fork PRs are
+      # verified instead (fork tokens are read-only; main may be protected).
+      CAN_AUTOFIX: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On PRs, check out the real branch (not the detached merge ref) so
+          # the bot can push to it. Set the API_TYPES_PUSH_TOKEN secret (a PAT
+          # or GitHub App token with contents:write) if you want the bot commit
+          # to re-trigger CI; commits pushed with the default GITHUB_TOKEN do
+          # not start new workflow runs.
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.API_TYPES_PUSH_TOKEN || github.token }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -189,14 +206,42 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
-      - run: npm run check:tokens
+
+      # Regenerate before typecheck/build so everything below runs against
+      # types that match the backend as built in this very run.
+      - name: Sync API types
+        id: api_types
+        run: |
+          npm run api:types
+          if git diff --quiet -- src/lib/api/schema.d.ts; then
+            echo "schema.d.ts already matches the backend OpenAPI spec."
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit regenerated API types (same-repo PRs)
+        if: steps.api_types.outputs.drift == 'true' && env.CAN_AUTOFIX == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/api/schema.d.ts
+          git commit -m "chore(frontend): regenerate API types from backend OpenAPI"
+          git pull --rebase origin "${{ github.head_ref }}"
+          git push origin "HEAD:${{ github.head_ref }}"
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
       - run: npm run size
+      # Fails only where the bot could not fix the drift itself (pushes to
+      # main, fork PRs). Same-repo PRs were already auto-fixed above.
       - name: API types up to date
-        run: npm run api:types && git diff --exit-code src/lib/api/schema.d.ts
+        if: steps.api_types.outputs.drift == 'true' && env.CAN_AUTOFIX != 'true'
+        run: |
+          echo "::error file=frontend/src/lib/api/schema.d.ts::API types are out of date. Run 'npm run api:sync' from backend/ and commit frontend/src/lib/api/schema.d.ts."
+          git diff --stat -- src/lib/api/schema.d.ts
+          exit 1
 
   frontend-e2e:
     runs-on: ubuntu-latest
