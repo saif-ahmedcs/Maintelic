@@ -32,13 +32,13 @@ describe('nextActions', () => {
     expect(nextActions.CANCELLED).toEqual([]);
   });
 
-  it('does not expose a block action, even though the backend lifecycle allows it', () => {
-    // IN_PROGRESS -> BLOCKED is a real backend transition, but there is no
-    // PATCH /work-orders/:id/block endpoint yet. If the backend ships one,
-    // update nextActions.IN_PROGRESS and delete this assertion.
-    expect(BACKEND_ALLOWED_TRANSITIONS.IN_PROGRESS).toContain('BLOCKED');
+  it('offers block only for IN_PROGRESS', () => {
     for (const status of ALL_STATUSES) {
-      expect(nextActions[status]).not.toContain('block');
+      if (status === 'IN_PROGRESS') {
+        expect(nextActions[status]).toContain('block');
+      } else {
+        expect(nextActions[status]).not.toContain('block');
+      }
     }
   });
 });

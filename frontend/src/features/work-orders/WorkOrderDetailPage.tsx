@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
 import { Button } from '../../design/Button';
 import { Dialog } from '../../design/Dialog';
 import { EmptyState } from '../../design/EmptyState';
 import { ErrorState } from '../../design/ErrorState';
 import { Eyebrow } from '../../design/Eyebrow';
+import { Field } from '../../design/Field';
 import { Panel } from '../../design/Panel';
 import { Skeleton } from '../../design/Skeleton';
 import { StatusTag } from '../../design/StatusTag';
@@ -19,6 +21,7 @@ import { getAsset } from '../assets/api';
 import { getSparePart } from '../spare-parts/api';
 import {
   assignWorkOrder,
+  blockWorkOrder,
   cancelWorkOrder,
   completeWorkOrder,
   getWorkOrder,
@@ -26,6 +29,12 @@ import {
   type WorkOrderPart,
 } from './api';
 import { actionLabel, nextActions, type WorkOrderAction } from './transitions';
+
+const blockReasonSchema = z
+  .string()
+  .trim()
+  .min(3, 'Reason must be at least 3 characters')
+  .max(500, 'Reason must be 500 characters or fewer');
 
 function workOrderReference(id: string): string {
   return `#${id.slice(0, 8).toUpperCase()}`;
@@ -86,6 +95,10 @@ export default function WorkOrderDetailPage() {
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [confirmingBlock, setConfirmingBlock] = useState(false);
+  const [blockReason, setBlockReason] = useState('');
+  const [blockReasonError, setBlockReasonError] = useState<string | null>(null);
+  const blockReasonRef = useRef<HTMLTextAreaElement>(null);
   const showCreatedBanner = Boolean(
     (location.state as { created?: boolean } | null)?.created,
   );
@@ -121,9 +134,6 @@ export default function WorkOrderDetailPage() {
 
   function handleTransitionError(error: unknown) {
     if (error instanceof ApiError && error.status === 409) {
-      // Someone else changed this work order. Show the server's message,
-      // then refetch so the action buttons rebuild from the real status
-      // instead of the one we thought we had.
       setActionError(toUserMessage(error).message);
       void queryClient.invalidateQueries({
         queryKey: ['work-orders', 'detail', id],
@@ -177,6 +187,41 @@ export default function WorkOrderDetailPage() {
     },
   });
 
+  function closeBlockDialog() {
+    setConfirmingBlock(false);
+    setBlockReason('');
+    setBlockReasonError(null);
+  }
+
+  const blockMutation = useMutation({
+    mutationFn: (reason: string) => blockWorkOrder(id as string, reason),
+    onSuccess: () => {
+      setActionError(null);
+      closeBlockDialog();
+      invalidateAfterTransition();
+    },
+    onError: (error) => {
+      closeBlockDialog();
+      handleTransitionError(error);
+    },
+  });
+
+  function handleBlockSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const result = blockReasonSchema.safeParse(blockReason);
+    if (!result.success) {
+      setBlockReasonError(
+        result.error.issues[0]?.message ?? 'Reason is required',
+      );
+      blockReasonRef.current?.focus();
+      return;
+    }
+
+    setBlockReasonError(null);
+    blockMutation.mutate(result.data);
+  }
+
   const mutationForAction: Record<
     WorkOrderAction,
     { isPending: boolean; run: () => void }
@@ -192,6 +237,10 @@ export default function WorkOrderDetailPage() {
     complete: {
       isPending: completeMutation.isPending,
       run: () => completeMutation.mutate(),
+    },
+    block: {
+      isPending: blockMutation.isPending,
+      run: () => setConfirmingBlock(true),
     },
     cancel: {
       isPending: cancelMutation.isPending,
@@ -305,7 +354,11 @@ export default function WorkOrderDetailPage() {
             {actions.map((action) => (
               <Button
                 key={action}
-                variant={action === 'cancel' ? 'ghost' : 'primary'}
+                variant={
+                  action === 'cancel' || action === 'block'
+                    ? 'ghost'
+                    : 'primary'
+                }
                 loading={mutationForAction[action].isPending}
                 onClick={() => mutationForAction[action].run()}
               >
@@ -386,6 +439,37 @@ export default function WorkOrderDetailPage() {
           This cancels {reference} for {assetQuery.data?.tag ?? 'this asset'}.
           This cannot be undone.
         </p>
+      </Dialog>
+
+      <Dialog
+        open={confirmingBlock}
+        title="Block work order?"
+        onClose={closeBlockDialog}
+      >
+        <form
+          onSubmit={handleBlockSubmit}
+          noValidate
+          className="flex flex-col gap-5"
+        >
+          <Field label="Reason" error={blockReasonError ?? undefined}>
+            <textarea
+              ref={blockReasonRef}
+              rows={3}
+              placeholder="Waiting on replacement bearing from supplier"
+              value={blockReason}
+              onChange={(event) => setBlockReason(event.target.value)}
+            />
+          </Field>
+
+          <div className="flex items-center justify-end gap-3">
+            <Button type="button" variant="ghost" onClick={closeBlockDialog}>
+              Keep working
+            </Button>
+            <Button type="submit" loading={blockMutation.isPending}>
+              Block work order
+            </Button>
+          </div>
+        </form>
       </Dialog>
     </div>
   );

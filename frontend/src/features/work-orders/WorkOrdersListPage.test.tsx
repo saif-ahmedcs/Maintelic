@@ -78,6 +78,7 @@ function makeWorkOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     cancelledAt: null,
     totalCost: null,
     aiNote: null,
+    blockReason: null,
     parts: [],
     ...overrides,
   };

@@ -21,7 +21,7 @@ export const can = {
   // POST /work-orders
   createWorkOrder: (roles: Role[]) =>
     hasAny(roles, ['ADMIN', 'SUPERVISOR', 'TECHNICIAN']),
-  // PATCH /work-orders/:id/assign, /start, /complete
+  // PATCH /work-orders/:id/assign, /start, /block, /complete
   transitionWorkOrder: (roles: Role[]) =>
     hasAny(roles, ['ADMIN', 'SUPERVISOR', 'TECHNICIAN']),
   // PATCH /work-orders/:id/cancel

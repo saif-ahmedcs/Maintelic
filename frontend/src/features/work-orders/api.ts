@@ -46,6 +46,7 @@ export const workOrderSchema = z.object({
   cancelledAt: z.string().nullable(),
   totalCost: z.number().nullable(),
   aiNote: z.string().nullable(),
+  blockReason: z.string().nullable(),
   parts: z.array(workOrderPartSchema),
 });
 export type WorkOrder = z.infer<typeof workOrderSchema>;
@@ -105,6 +106,18 @@ export async function assignWorkOrder(
 export async function startWorkOrder(id: string): Promise<WorkOrder> {
   const data = await request<unknown>(`/work-orders/${id}/start`, {
     method: 'PATCH',
+  });
+  return workOrderSchema.parse(data);
+}
+
+/** PATCH /work-orders/:id/block (IN_PROGRESS only; reason must be 3-500 characters) */
+export async function blockWorkOrder(
+  id: string,
+  reason: string,
+): Promise<WorkOrder> {
+  const data = await request<unknown>(`/work-orders/${id}/block`, {
+    method: 'PATCH',
+    body: { reason },
   });
   return workOrderSchema.parse(data);
 }
