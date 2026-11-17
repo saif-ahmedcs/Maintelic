@@ -24,6 +24,8 @@ const ALL_STATUSES: StatusTagValue[] = [
   'SUPERVISOR',
   'TECHNICIAN',
   'VIEWER',
+  'ACTIVE',
+  'INACTIVE',
 ];
 
 describe('StatusTag', () => {
@@ -83,6 +85,8 @@ describe('StatusTag', () => {
     ['AUTO', 'text-accent-lavender'],
     ['DECOMMISSIONED', 'text-text-silver'],
     ['CANCELLED', 'text-text-silver'],
+    ['ACTIVE', 'text-text-mist'],
+    ['INACTIVE', 'text-text-silver'],
   ])('applies the %s text color %s', (status, expectedClass) => {
     const { container } = render(<StatusTag status={status} />);
     const el = within(container)
@@ -91,10 +95,12 @@ describe('StatusTag', () => {
     expect(el?.className).toContain(expectedClass);
   });
 
-  it('marks DECOMMISSIONED and CANCELLED dots Slate Deep, not their text color', () => {
-    const { container } = render(<StatusTag status="DECOMMISSIONED" />);
-    const dot = container.querySelector('[aria-hidden="true"]');
-    expect(dot?.className).toContain('bg-surface-slate');
+  it('marks DECOMMISSIONED, CANCELLED and INACTIVE dots Slate Deep, not their text color', () => {
+    for (const status of ['DECOMMISSIONED', 'CANCELLED', 'INACTIVE'] as const) {
+      const { container } = render(<StatusTag status={status} />);
+      const dot = container.querySelector('[aria-hidden="true"]');
+      expect(dot?.className).toContain('bg-surface-slate');
+    }
   });
 
   it('role tags (ADMIN, SUPERVISOR, TECHNICIAN, VIEWER) use the neutral silver tier', () => {

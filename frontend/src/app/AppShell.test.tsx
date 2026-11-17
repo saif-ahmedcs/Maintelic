@@ -136,6 +136,30 @@ describe('AppShell + Overview — axe (17.1)', () => {
   });
 });
 
+describe('AppShell nav — Users item visible only to ADMIN (Phase 21)', () => {
+  it('shows the USERS nav item for an ADMIN', async () => {
+    mockSession(['ADMIN']);
+    await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+    mockOverviewEndpoints();
+
+    renderAppAtOverview();
+
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByText('USERS')).toBeInTheDocument();
+  });
+
+  it('hides the USERS nav item for a non-admin', async () => {
+    mockSession(['TECHNICIAN']);
+    await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+    mockOverviewEndpoints();
+
+    renderAppAtOverview();
+
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(nav).queryByText('USERS')).not.toBeInTheDocument();
+  });
+});
+
 describe('AppShell alert badge (14.4 / 14.5)', () => {
   it('shows the unread count and clears it once the alert is acknowledged', async () => {
     const user = userEvent.setup();

@@ -22,7 +22,9 @@ export type StatusTagValue =
   | 'ADMIN'
   | 'SUPERVISOR'
   | 'TECHNICIAN'
-  | 'VIEWER';
+  | 'VIEWER'
+  | 'ACTIVE'
+  | 'INACTIVE';
 
 interface StatusTagOwnProps {
   status: StatusTagValue;
@@ -39,6 +41,7 @@ const STATUS_STYLE: Record<StatusTagValue, { text: string; dot: string }> = {
   OPEN: { text: 'text-text-mist', dot: 'bg-text-mist' },
   COMPLETED: { text: 'text-text-mist', dot: 'bg-text-mist' },
   RESOLVED: { text: 'text-text-mist', dot: 'bg-text-mist' },
+  ACTIVE: { text: 'text-text-mist', dot: 'bg-text-mist' },
 
   // UNDER_MAINTENANCE / ASSIGNED / IN_PROGRESS tier — Silver Mist
   UNDER_MAINTENANCE: { text: 'text-text-silver', dot: 'bg-text-silver' },
@@ -67,9 +70,10 @@ const STATUS_STYLE: Record<StatusTagValue, { text: string; dot: string }> = {
   // AUTO source tag — Lavender Phosphor
   AUTO: { text: 'text-accent-lavender', dot: 'bg-accent-lavender' },
 
-  // DECOMMISSIONED / CANCELLED — Silver Mist text, Slate Deep dot
+  // DECOMMISSIONED / CANCELLED / INACTIVE — Silver Mist text, Slate Deep dot
   DECOMMISSIONED: { text: 'text-text-silver', dot: 'bg-surface-slate' },
   CANCELLED: { text: 'text-text-silver', dot: 'bg-surface-slate' },
+  INACTIVE: { text: 'text-text-silver', dot: 'bg-surface-slate' },
 };
 
 function toLabel(status: StatusTagValue): string {

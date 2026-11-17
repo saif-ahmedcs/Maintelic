@@ -17,6 +17,7 @@ const EXPECTED_PERMISSIONS: Record<keyof typeof can, Role[]> = {
   acknowledgeAlert: ['ADMIN', 'SUPERVISOR', 'TECHNICIAN'],
   resolveAlert: ['ADMIN', 'SUPERVISOR', 'TECHNICIAN'],
   viewAudit: ['ADMIN', 'SUPERVISOR'],
+  manageUsers: ['ADMIN'],
 };
 
 describe('hasAny', () => {

@@ -38,4 +38,7 @@ export const can = {
     hasAny(roles, ['ADMIN', 'SUPERVISOR', 'TECHNICIAN']),
   // GET /audit (the whole controller is role-gated, not just writes)
   viewAudit: (roles: Role[]) => hasAny(roles, ['ADMIN', 'SUPERVISOR']),
+  // GET/POST/PATCH /users, PUT /users/:id/roles, POST /users/:id/reset-password
+  // (the whole controller is role-gated)
+  manageUsers: (roles: Role[]) => hasAny(roles, ['ADMIN']),
 };

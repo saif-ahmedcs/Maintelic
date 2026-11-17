@@ -26,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'TELEMETRY', to: '/telemetry' },
   { label: 'ALERTS', to: '/alerts' },
   { label: 'AUDIT', to: '/audit', guard: can.viewAudit },
+  { label: 'USERS', to: '/users', guard: can.manageUsers },
 ];
 
 function isActive(pathname: string, to: string): boolean {
