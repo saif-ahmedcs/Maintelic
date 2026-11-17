@@ -9,7 +9,7 @@ export interface RequireAuthProps {
 }
 
 export function RequireAuth({ children }: RequireAuthProps) {
-  const { status } = useSession();
+  const { status, user } = useSession();
   const location = useLocation();
 
   if (status === 'restoring') {
@@ -24,6 +24,10 @@ export function RequireAuth({ children }: RequireAuthProps) {
 
   if (status === 'unauthenticated') {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  if (user?.mustChangePassword && location.pathname !== '/account') {
+    return <Navigate to="/account" replace />;
   }
 
   return <>{children}</>;

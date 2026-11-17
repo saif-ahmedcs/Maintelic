@@ -179,7 +179,11 @@ export class AuthController {
   @ApiOperation({
     summary: 'Return the currently authenticated user and their roles',
   })
-  @ApiOkResponse({ description: 'The authenticated user' })
+  @ApiOkResponse({
+    description:
+      'The authenticated user: id, email, name, roles, and whether a ' +
+      'password change is required (`mustChangePassword`).',
+  })
   me(@CurrentUser() user: RequestUser) {
     return user;
   }

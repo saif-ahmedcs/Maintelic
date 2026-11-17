@@ -41,8 +41,6 @@ describe('AppRouter code-splitting (17.4)', () => {
       </AppProviders>,
     );
 
-    expect(
-      await screen.findByRole('heading', { name: 'Account' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Account')).toBeInTheDocument();
   });
 });

@@ -102,9 +102,12 @@ export function AppShell() {
           </nav>
 
           <div className="hidden items-center gap-4 lg:flex">
-            <span className="font-display text-label text-text-silver">
+            <Link
+              to="/account"
+              className="font-display text-label text-text-silver hover:text-text-platinum"
+            >
               {user.email}
-            </span>
+            </Link>
             <div className="flex items-center gap-1.5">
               {user.roles.map((role) => (
                 <StatusTag key={role} status={role} showDot={false} />
@@ -148,9 +151,12 @@ export function AppShell() {
             ))}
 
             <div className="mt-4 flex flex-col gap-3 pt-4">
-              <span className="font-display text-label text-text-silver">
+              <Link
+                to="/account"
+                className="font-display text-label text-text-silver hover:text-text-platinum"
+              >
                 {user.email}
-              </span>
+              </Link>
               <div className="flex flex-wrap items-center gap-1.5">
                 {user.roles.map((role) => (
                   <StatusTag key={role} status={role} showDot={false} />

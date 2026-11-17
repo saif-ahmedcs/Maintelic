@@ -70,3 +70,80 @@ describe('RequireAuth', () => {
     expect(screen.getByText('secret content')).toBeInTheDocument();
   });
 });
+
+function renderAtPath(initialPath: string) {
+  return render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <Routes>
+        <Route
+          path="/protected"
+          element={
+            <RequireAuth>
+              <div>secret content</div>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/account"
+          element={
+            <RequireAuth>
+              <div>account screen</div>
+            </RequireAuth>
+          }
+        />
+        <Route path="/login" element={<LoginProbe />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe('RequireAuth — forced password-change redirect (Phase 22)', () => {
+  it('redirects away from any other route to /account when mustChangePassword is true', () => {
+    mockedUseSession.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        id: 'user-1',
+        email: 'admin@plant.example',
+        roles: ['ADMIN'],
+        mustChangePassword: true,
+      },
+    });
+
+    renderAtPath('/protected');
+
+    expect(screen.getByText('account screen')).toBeInTheDocument();
+    expect(screen.queryByText('secret content')).not.toBeInTheDocument();
+  });
+
+  it('lets the user stay on /account itself instead of redirect-looping', () => {
+    mockedUseSession.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        id: 'user-1',
+        email: 'admin@plant.example',
+        roles: ['ADMIN'],
+        mustChangePassword: true,
+      },
+    });
+
+    renderAtPath('/account');
+
+    expect(screen.getByText('account screen')).toBeInTheDocument();
+  });
+
+  it('does not redirect once mustChangePassword is false', () => {
+    mockedUseSession.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        id: 'user-1',
+        email: 'admin@plant.example',
+        roles: ['ADMIN'],
+        mustChangePassword: false,
+      },
+    });
+
+    renderAtPath('/protected');
+
+    expect(screen.getByText('secret content')).toBeInTheDocument();
+  });
+});

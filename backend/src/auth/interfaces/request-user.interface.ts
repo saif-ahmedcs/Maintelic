@@ -4,4 +4,6 @@ export interface RequestUser {
   id: string;
   email: string;
   roles: RoleName[];
+  name?: string | null;
+  mustChangePassword?: boolean;
 }

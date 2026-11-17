@@ -53,6 +53,12 @@ export async function signIn(tokens: AuthTokens): Promise<void> {
   }
 }
 
+export async function refreshSessionUser(): Promise<void> {
+  if (state.status !== 'authenticated') return;
+  const user = await getMe();
+  setState({ status: 'authenticated', user });
+}
+
 export async function signOut(): Promise<void> {
   try {
     await logout();

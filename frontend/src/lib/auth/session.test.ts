@@ -6,6 +6,7 @@ import type { AuthTokens, AuthUser } from '../../features/auth/api';
 import { SESSION_EXPIRED_EVENT } from '../api/client';
 import {
   getAccessToken,
+  refreshSessionUser,
   restoreSession,
   signIn,
   signOut,
@@ -150,6 +151,41 @@ describe('signOut', () => {
 
     expect(result.current).toEqual({ status: 'unauthenticated', user: null });
     expect(getAccessToken()).toBeNull();
+  });
+});
+
+describe('refreshSessionUser (Phase 22)', () => {
+  it('re-fetches /auth/me and replaces the user without changing the access token', async () => {
+    mockMeOk();
+    await signIn(TOKENS);
+
+    const { result } = renderHook(() => useSession());
+    expect(result.current).toEqual({ status: 'authenticated', user: ME });
+
+    const updated: AuthUser = {
+      ...ME,
+      name: 'Jordan Reyes',
+      mustChangePassword: true,
+    };
+    server.use(http.get('/auth/me', () => HttpResponse.json(updated)));
+
+    await act(async () => {
+      await refreshSessionUser();
+    });
+
+    expect(result.current).toEqual({ status: 'authenticated', user: updated });
+    expect(getAccessToken()).toBe(TOKENS.accessToken);
+  });
+
+  it('does nothing when there is no authenticated session', async () => {
+    const { result } = renderHook(() => useSession());
+    expect(result.current.status).toBe('unauthenticated');
+
+    await act(async () => {
+      await refreshSessionUser();
+    });
+
+    expect(result.current).toEqual({ status: 'unauthenticated', user: null });
   });
 });
 

@@ -13,6 +13,8 @@ const authUserSchema = z.object({
   id: z.string(),
   email: z.string(),
   roles: z.array(roleSchema),
+  name: z.string().nullable().optional(),
+  mustChangePassword: z.boolean().optional(),
 });
 export type AuthUser = z.infer<typeof authUserSchema>;
 
