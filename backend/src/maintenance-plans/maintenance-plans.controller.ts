@@ -70,12 +70,14 @@ export class MaintenancePlansController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single maintenance plan by id' })
+  @ApiOperation({
+    summary: 'Get a single maintenance plan by id, with its ordered tasks',
+  })
   @ApiOkResponse({ type: MaintenancePlanResponseDto })
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return MaintenancePlanResponseDto.fromEntity(
-      await this.plansService.findOne(id),
-    );
+    const plan = await this.plansService.findOne(id);
+    const tasks = await this.plansService.findTasksForPlan(id);
+    return MaintenancePlanResponseDto.fromEntity(plan, tasks);
   }
 
   @Post()

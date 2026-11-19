@@ -25,4 +25,12 @@ export class WorkOrderQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(WorkOrderSource)
   source?: WorkOrderSource;
+
+  @ApiPropertyOptional({
+    description:
+      'Filter to work orders raised from a single maintenance plan. This is the work-order-history query for a plan detail page.',
+  })
+  @IsOptional()
+  @IsUUID()
+  maintenancePlanId?: string;
 }

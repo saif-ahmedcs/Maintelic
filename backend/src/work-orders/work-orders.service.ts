@@ -96,6 +96,11 @@ export class WorkOrdersService {
     if (query.source) {
       qb.andWhere('workOrder.source = :source', { source: query.source });
     }
+    if (query.maintenancePlanId) {
+      qb.andWhere('workOrder.maintenancePlanId = :maintenancePlanId', {
+        maintenancePlanId: query.maintenancePlanId,
+      });
+    }
     return paginate(qb, query, {
       defaultSortBy: 'workOrder.openedAt',
       allowedSortFields: SORTABLE_FIELDS,

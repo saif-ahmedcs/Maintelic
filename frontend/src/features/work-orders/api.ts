@@ -57,6 +57,8 @@ export interface ListWorkOrdersParams extends QueryParams {
   assetId?: string;
   status?: WorkOrderStatus;
   source?: WorkOrderSource;
+  /** The work-order-history query for a maintenance plan's detail page. */
+  maintenancePlanId?: string;
   sortBy?: string;
   sortDir?: 'ASC' | 'DESC' | 'asc' | 'desc';
 }

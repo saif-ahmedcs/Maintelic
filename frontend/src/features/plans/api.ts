@@ -2,6 +2,13 @@ import { z } from 'zod';
 import { request, type QueryParams } from '../../lib/api/client';
 import { paginated } from '../../lib/api/pagination';
 
+export const maintenanceTaskSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  orderIndex: z.number(),
+});
+export type MaintenanceTask = z.infer<typeof maintenanceTaskSchema>;
+
 export const maintenancePlanSchema = z.object({
   id: z.string(),
   assetId: z.string(),
@@ -12,6 +19,12 @@ export const maintenancePlanSchema = z.object({
   active: z.boolean(),
 });
 export type MaintenancePlan = z.infer<typeof maintenancePlanSchema>;
+
+// GET /maintenance-plans/:id
+export const maintenancePlanDetailSchema = maintenancePlanSchema.extend({
+  tasks: z.array(maintenanceTaskSchema).default([]),
+});
+export type MaintenancePlanDetail = z.infer<typeof maintenancePlanDetailSchema>;
 
 export interface ListMaintenancePlansParams extends QueryParams {
   page?: number;
@@ -37,6 +50,14 @@ export async function listMaintenancePlans(
     query: params,
   });
   return paginated(maintenancePlanSchema).parse(data);
+}
+
+/** GET /maintenance-plans/:id (includes the plan's ordered tasks) */
+export async function getMaintenancePlan(
+  id: string,
+): Promise<MaintenancePlanDetail> {
+  const data = await request<unknown>(`/maintenance-plans/${id}`);
+  return maintenancePlanDetailSchema.parse(data);
 }
 
 export interface CreateMaintenancePlanInput {

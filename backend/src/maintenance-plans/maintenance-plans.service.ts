@@ -10,6 +10,7 @@ import { CreateMaintenancePlanDto } from './dto/create-maintenance-plan.dto';
 import { MaintenancePlanQueryDto } from './dto/maintenance-plan-query.dto';
 import { UpdateMaintenancePlanDto } from './dto/update-maintenance-plan.dto';
 import { MaintenancePlan } from './entities/maintenance-plan.entity';
+import { MaintenanceTask } from './entities/maintenance-task.entity';
 import { daysFromNow } from '../common/utils/date.util';
 
 const SORTABLE_FIELDS = ['plan.name', 'plan.nextDueAt', 'plan.intervalDays'];
@@ -19,6 +20,8 @@ export class MaintenancePlansService {
   constructor(
     @InjectRepository(MaintenancePlan)
     private readonly planRepo: Repository<MaintenancePlan>,
+    @InjectRepository(MaintenanceTask)
+    private readonly taskRepo: Repository<MaintenanceTask>,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
   ) {}
@@ -70,6 +73,13 @@ export class MaintenancePlansService {
       throw new NotFoundException(`Maintenance plan ${id} not found`);
     }
     return plan;
+  }
+
+  async findTasksForPlan(planId: string): Promise<MaintenanceTask[]> {
+    return this.taskRepo.find({
+      where: { planId },
+      order: { orderIndex: 'ASC' },
+    });
   }
 
   async create(

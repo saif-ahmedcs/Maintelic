@@ -464,7 +464,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Get a single maintenance plan by id */
+    /** Get a single maintenance plan by id, with its ordered tasks */
     get: operations['MaintenancePlansController_findOne'];
     put?: never;
     post?: never;
@@ -1005,6 +1005,12 @@ export interface components {
       status:
         'OPERATIONAL' | 'UNDER_MAINTENANCE' | 'CRITICAL' | 'DECOMMISSIONED';
     };
+    MaintenanceTaskResponseDto: {
+      id: string;
+      description: string;
+      /** @description Display order within the plan, ascending */
+      orderIndex: number;
+    };
     MaintenancePlanResponseDto: {
       id: string;
       assetId: string;
@@ -1014,6 +1020,8 @@ export interface components {
       lastCompletedAt: Record<string, never> | null;
       nextDueAt: Record<string, never> | null;
       active: boolean;
+      /** @description Ordered tasks for this plan (orderIndex ascending). Only populated on GET /maintenance-plans/:id; omitted from list and /due responses. */
+      tasks?: components['schemas']['MaintenanceTaskResponseDto'][];
     };
     CreateMaintenancePlanDto: {
       assetId: string;
@@ -2521,6 +2529,8 @@ export interface operations {
           | 'COMPLETED'
           | 'CANCELLED';
         source?: 'MANUAL' | 'PLANNED' | 'AUTO';
+        /** @description Filter to work orders raised from a single maintenance plan. This is the work-order-history query for a plan detail page. */
+        maintenancePlanId?: string;
       };
       header?: never;
       path?: never;

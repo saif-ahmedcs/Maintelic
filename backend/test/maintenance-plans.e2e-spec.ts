@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module';
+import { MaintenanceTask } from './../src/maintenance-plans/entities/maintenance-task.entity';
 import { RoleName } from './../src/users/entities/role.entity';
 import { registerAndLogin } from './utils/register-and-login';
 
@@ -293,5 +294,78 @@ describe('MaintenancePlans (e2e)', () => {
       .query({ assetId: 'not-a-uuid' })
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(400);
+  });
+
+  describe('tasks embedded in GET /maintenance-plans/:id', () => {
+    it('returns tasks ordered by orderIndex, and omits tasks from the list endpoint', async () => {
+      const tag = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      const planId = (
+        await request(app.getHttpServer())
+          .post('/maintenance-plans')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ assetId, name: `Tasked-${tag}`, intervalDays: 30 })
+          .expect(201)
+      ).body.id;
+
+      const taskRepo = dataSource.getRepository(MaintenanceTask);
+      await taskRepo.save([
+        taskRepo.create({
+          planId,
+          description: 'Replace filter',
+          orderIndex: 2,
+        }),
+        taskRepo.create({
+          planId,
+          description: 'Check lubrication',
+          orderIndex: 0,
+        }),
+        taskRepo.create({
+          planId,
+          description: 'Inspect seals',
+          orderIndex: 1,
+        }),
+      ]);
+
+      const detailRes = await request(app.getHttpServer())
+        .get(`/maintenance-plans/${planId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(
+        detailRes.body.tasks.map((t: { description: string }) => t.description),
+      ).toEqual(['Check lubrication', 'Inspect seals', 'Replace filter']);
+      expect(
+        detailRes.body.tasks.map((t: { orderIndex: number }) => t.orderIndex),
+      ).toEqual([0, 1, 2]);
+
+      const listRes = await request(app.getHttpServer())
+        .get('/maintenance-plans')
+        .query({ assetId, limit: 100 })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const listedPlan = listRes.body.data.find(
+        (p: { id: string }) => p.id === planId,
+      );
+      expect(listedPlan.tasks).toBeUndefined();
+    });
+
+    it('returns an empty tasks array for a plan with no tasks', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/maintenance-plans')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          assetId,
+          name: `No tasks ${Date.now()}`,
+          intervalDays: 30,
+        })
+        .expect(201);
+
+      const detailRes = await request(app.getHttpServer())
+        .get(`/maintenance-plans/${createRes.body.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(detailRes.body.tasks).toEqual([]);
+    });
   });
 });
