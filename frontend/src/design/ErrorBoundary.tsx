@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { ApiError } from '../lib/api/errors';
+import { reportError } from '../lib/observability/errorReporter';
 import { ErrorState, type ErrorStateError } from './ErrorState';
 
 export interface ErrorBoundaryProps {
@@ -36,6 +37,12 @@ export class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, info);
+
+    try {
+      reportError(error);
+    } catch {
+      // reporting must never cause a second crash.
+    }
   }
 
   private reset = () => {

@@ -15,6 +15,7 @@ const API_PREFIXES = [
   '/notifications',
   '/telemetry',
   '/audit',
+  '/client-errors',
   '/health',
 ];
 
