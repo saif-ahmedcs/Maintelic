@@ -48,7 +48,7 @@ export function RestockSparePartDialog({
       return restockSparePart(part.id, input);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['spare-parts', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: ['spare-parts'] });
       handleClose();
     },
     onError: (error) => {

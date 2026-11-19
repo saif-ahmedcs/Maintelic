@@ -1515,7 +1515,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The authenticated user */
+      /** @description The authenticated user: id, email, name, roles, and whether a password change is required (`mustChangePassword`). */
       200: {
         headers: {
           [name: string]: unknown;

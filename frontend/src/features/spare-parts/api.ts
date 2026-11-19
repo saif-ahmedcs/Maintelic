@@ -17,7 +17,6 @@ export type SparePart = z.infer<typeof sparePartSchema>;
 export interface ListSparePartsParams extends QueryParams {
   page?: number;
   limit?: number;
-  /** Server-side filter: quantityOnHand <= reorderThreshold */
   lowStock?: boolean;
   sortBy?: string;
   sortDir?: 'ASC' | 'DESC' | 'asc' | 'desc';
@@ -96,4 +95,42 @@ export async function adjustSparePart(
 /** DELETE /spare-parts/:id (ADMIN, SUPERVISOR) */
 export async function deleteSparePart(id: string): Promise<void> {
   await request<void>(`/spare-parts/${id}`, { method: 'DELETE' });
+}
+
+export const inventoryTransactionReasonSchema = z.enum([
+  'CONSUMED',
+  'RESTOCK',
+  'ADJUSTMENT',
+]);
+export type InventoryTransactionReason = z.infer<
+  typeof inventoryTransactionReasonSchema
+>;
+
+export const inventoryTransactionSchema = z.object({
+  id: z.string(),
+  sparePartId: z.string(),
+  deltaQuantity: z.number(),
+  reason: inventoryTransactionReasonSchema,
+  workOrderId: z.string().nullable(),
+  createdByUserId: z.string().nullable(),
+  quantityBefore: z.number(),
+  quantityAfter: z.number(),
+  createdAt: z.string(),
+});
+export type InventoryTransaction = z.infer<typeof inventoryTransactionSchema>;
+
+export interface ListSparePartTransactionsParams extends QueryParams {
+  page?: number;
+  limit?: number;
+}
+
+/** GET /spare-parts/:id/transactions (paginated, newest first) */
+export async function listSparePartTransactions(
+  id: string,
+  params: ListSparePartTransactionsParams = {},
+) {
+  const data = await request<unknown>(`/spare-parts/${id}/transactions`, {
+    query: params,
+  });
+  return paginated(inventoryTransactionSchema).parse(data);
 }
