@@ -6,6 +6,8 @@ import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module';
 import { AuditService } from './../src/audit/audit.service';
+import { RoleName } from './../src/users/entities/role.entity';
+import { seedUser } from './utils/register-and-login';
 
 describe('Audit (e2e)', () => {
   let app: INestApplication<App>;
@@ -39,18 +41,11 @@ describe('Audit (e2e)', () => {
     auditService = moduleFixture.get(AuditService);
     await app.init();
 
-    await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({ email: adminEmail, password })
-      .expect(201);
-
-    await dataSource.query(
-      `INSERT INTO user_roles (user_id, role_id)
-       SELECT u.id, r.id FROM users u, roles r
-       WHERE u.email = $1 AND r.name = 'ADMIN'
-       ON CONFLICT DO NOTHING`,
-      [adminEmail],
-    );
+    await seedUser(dataSource, {
+      email: adminEmail,
+      password,
+      role: RoleName.ADMIN,
+    });
 
     const loginRes = await request(app.getHttpServer())
       .post('/auth/login')
@@ -148,13 +143,10 @@ describe('Audit (e2e)', () => {
     expect(res.body.meta.total).toBe(0);
   });
 
-  it('blocks a VIEWER (the default role on registration) from reading the audit trail', async () => {
+  it('blocks a VIEWER from reading the audit trail', async () => {
     const viewerEmail = `audit-e2e-viewer-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
 
-    await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({ email: viewerEmail, password })
-      .expect(201);
+    await seedUser(dataSource, { email: viewerEmail, password });
 
     const viewerLogin = await request(app.getHttpServer())
       .post('/auth/login')

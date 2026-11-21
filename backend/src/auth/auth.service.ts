@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import type { StringValue } from 'ms';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -10,7 +6,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'node:crypto';
 import { DataSource, EntityManager, IsNull, Not, Repository } from 'typeorm';
-import { Role, RoleName } from '../users/entities/role.entity';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -37,37 +32,10 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
-    @InjectRepository(Role)
-    private readonly roleRepo: Repository<Role>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepo: Repository<RefreshToken>,
     private readonly dataSource: DataSource,
   ) {}
-
-  async register(email: string, password: string): Promise<User> {
-    const existing = await this.usersService.findByEmail(email);
-    if (existing) {
-      throw new ConflictException('An account with this email already exists');
-    }
-
-    const defaultRole = await this.roleRepo.findOne({
-      where: { name: RoleName.VIEWER },
-    });
-    if (!defaultRole) {
-      throw new Error('Default role VIEWER is not seeded');
-    }
-
-    const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
-
-    const user = this.usersService.create({
-      email,
-      passwordHash,
-      isActive: true,
-      roles: [defaultRole],
-    });
-
-    return this.usersService.save(user);
-  }
 
   async validateUser(email: string, password: string): Promise<User | null> {
     const user = await this.usersService.findByEmail(email);

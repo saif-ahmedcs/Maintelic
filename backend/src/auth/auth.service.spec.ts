@@ -1,4 +1,4 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService, REFRESH_ROTATION_GRACE_MS } from './auth.service';
 import { RoleName } from '../users/entities/role.entity';
@@ -11,12 +11,9 @@ describe('AuthService', () => {
   let usersService: {
     findByEmail: jest.Mock;
     findById: jest.Mock;
-    create: jest.Mock;
-    save: jest.Mock;
   };
   let jwtService: { sign: jest.Mock };
   let config: { get: jest.Mock };
-  let roleRepo: { findOne: jest.Mock };
   let refreshTokenRepo: {
     findOne: jest.Mock;
     save: jest.Mock;
@@ -40,8 +37,6 @@ describe('AuthService', () => {
     usersService = {
       findByEmail: jest.fn(),
       findById: jest.fn(),
-      create: jest.fn((partial) => partial),
-      save: jest.fn(async (user) => ({ id: 'user-1', ...user })),
     };
     jwtService = { sign: jest.fn(() => 'signed.jwt.token') };
     config = {
@@ -53,7 +48,6 @@ describe('AuthService', () => {
         return values[key];
       }),
     };
-    roleRepo = { findOne: jest.fn(async () => viewerRole) };
     refreshTokenRepo = {
       findOne: jest.fn(),
       create: jest.fn((partial) => partial),
@@ -93,35 +87,12 @@ describe('AuthService', () => {
       usersService as any,
       jwtService as any,
       config as any,
-      roleRepo as any,
       refreshTokenRepo as any,
       dataSource as any,
     );
   });
 
-  describe('register', () => {
-    it('hashes the password and never stores it in plaintext', async () => {
-      usersService.findByEmail.mockResolvedValue(null);
-
-      const user = await service.register('new@example.com', 'plaintext-pw');
-
-      expect(user.passwordHash).toBeDefined();
-      expect(user.passwordHash).not.toBe('plaintext-pw');
-      await expect(
-        bcrypt.compare('plaintext-pw', user.passwordHash),
-      ).resolves.toBe(true);
-    });
-
-    it('throws a ConflictException if the email is already taken', async () => {
-      usersService.findByEmail.mockResolvedValue({ id: 'existing' });
-
-      await expect(
-        service.register('dup@example.com', 'password123'),
-      ).rejects.toThrow(ConflictException);
-    });
-  });
-
-  describe('validateUser (round-trip with register)', () => {
+  describe('validateUser', () => {
     it('accepts the correct password against a stored hash', async () => {
       const passwordHash = await bcrypt.hash('correct-password', 10);
       usersService.findByEmail.mockResolvedValue({

@@ -29,11 +29,6 @@ export interface LoginParams {
   password: string;
 }
 
-export interface RegisterParams {
-  email: string;
-  password: string;
-}
-
 /* POST /auth/login */
 export async function login(params: LoginParams): Promise<AuthTokens> {
   const data = await request<unknown>('/auth/login', {
@@ -42,16 +37,6 @@ export async function login(params: LoginParams): Promise<AuthTokens> {
     skipAuthRefresh: true,
   });
   return authTokensSchema.parse(data);
-}
-
-/* POST /auth/register */
-export async function register(params: RegisterParams): Promise<AuthUser> {
-  const data = await request<unknown>('/auth/register', {
-    method: 'POST',
-    body: params,
-    skipAuthRefresh: true,
-  });
-  return authUserSchema.parse(data);
 }
 
 /* GET /auth/me. */

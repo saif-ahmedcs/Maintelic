@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module';
+import { seedUser } from './utils/register-and-login';
 
 describe('Auth (e2e)', () => {
   let app: INestApplication<App>;
@@ -33,12 +34,9 @@ describe('Auth (e2e)', () => {
     await app.close();
   });
 
-  it('walks the full lifecycle: register -> login -> protected route -> refresh -> protected route -> logout -> old refresh token rejected', async () => {
-    // Register
-    await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({ email, password })
-      .expect(201);
+  it('walks the full lifecycle: login -> protected route -> refresh -> protected route -> logout -> old refresh token rejected', async () => {
+    // Accounts are provisioned by admins; there is no public registration.
+    await seedUser(dataSource, { email, password });
 
     // Login
     const loginRes = await request(app.getHttpServer())
@@ -104,12 +102,9 @@ describe('Auth (e2e)', () => {
       .expect(401);
   });
 
-  async function registerAndLogin(prefix: string) {
+  async function seedAndLogin(prefix: string) {
     const raceEmail = `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
-    await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({ email: raceEmail, password })
-      .expect(201);
+    await seedUser(dataSource, { email: raceEmail, password });
     const { refreshToken } = (
       await request(app.getHttpServer())
         .post('/auth/login')
@@ -149,7 +144,7 @@ describe('Auth (e2e)', () => {
   }
 
   it('treats two concurrent refreshes of the same token as a benign race: both succeed, only one rotates, and the winner keeps a live session', async () => {
-    const { refreshToken } = await registerAndLogin('auth-race');
+    const { refreshToken } = await seedAndLogin('auth-race');
 
     const responses = await raceTwoRefreshes(refreshToken);
 
@@ -173,7 +168,7 @@ describe('Auth (e2e)', () => {
   });
 
   it('still revokes the whole family when a rotated token is replayed after the grace window', async () => {
-    const { refreshToken } = await registerAndLogin('auth-replay');
+    const { refreshToken } = await seedAndLogin('auth-replay');
 
     const rotated = await request(app.getHttpServer())
       .post('/auth/refresh')

@@ -7,11 +7,6 @@ function authRateLimit(envVar: string, productionDefault: number) {
   };
 }
 
-export const AUTH_REGISTER_THROTTLE = {
-  limit: authRateLimit('AUTH_REGISTER_RATE_LIMIT', 5),
-  ttl: 60_000,
-};
-
 export const AUTH_LOGIN_THROTTLE = {
   limit: authRateLimit('AUTH_LOGIN_RATE_LIMIT', 5),
   ttl: 60_000,

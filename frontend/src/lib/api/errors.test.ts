@@ -39,7 +39,7 @@ describe('ApiError.fromResponse', () => {
       { status: 400 },
     );
 
-    const error = await ApiError.fromResponse(response, '/auth/register');
+    const error = await ApiError.fromResponse(response, '/auth/login');
 
     expect(error.message).toBe(
       'email must be an email password must be longer than 8 characters',

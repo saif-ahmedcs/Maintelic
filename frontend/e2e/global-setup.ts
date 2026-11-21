@@ -52,12 +52,7 @@ async function globalSetup(config: FullConfig): Promise<void> {
     await technician.close();
 
     const viewer = await browser.newContext({ baseURL });
-    const viewerPage = await viewer.newPage();
-
-    await viewerPage.request.post('/auth/register', {
-      data: { email: VIEWER_EMAIL, password: VIEWER_PASSWORD },
-    });
-    await loginAs(viewerPage, VIEWER_EMAIL, VIEWER_PASSWORD);
+    await loginAs(await viewer.newPage(), VIEWER_EMAIL, VIEWER_PASSWORD);
     await viewer.storageState({ path: STORAGE_STATE.viewer });
     await viewer.close();
   } finally {

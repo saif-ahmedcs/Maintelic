@@ -1,15 +1,49 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
-import { RoleName } from './../../src/users/entities/role.entity';
+import { Role, RoleName } from './../../src/users/entities/role.entity';
+import { User } from './../../src/users/entities/user.entity';
 
-const PASSWORD = 'CorrectHorseBattery9!';
+export const PASSWORD = 'CorrectHorseBattery9!';
+
+const BCRYPT_SALT_ROUNDS = 10;
 
 export interface RegisteredUser {
   email: string;
   accessToken: string;
+}
+
+export async function seedUser(
+  dataSource: DataSource,
+  options: { email: string; password?: string; role?: RoleName },
+): Promise<User> {
+  const roleNames = Array.from(
+    new Set([RoleName.VIEWER, ...(options.role ? [options.role] : [])]),
+  );
+  const roles = await dataSource
+    .getRepository(Role)
+    .createQueryBuilder('role')
+    .where('role.name IN (:...roleNames)', { roleNames })
+    .getMany();
+  if (roles.length !== roleNames.length) {
+    throw new Error('Roles are not seeded. Run migrations first.');
+  }
+
+  const userRepo = dataSource.getRepository(User);
+  return userRepo.save(
+    userRepo.create({
+      email: options.email,
+      passwordHash: await bcrypt.hash(
+        options.password ?? PASSWORD,
+        BCRYPT_SALT_ROUNDS,
+      ),
+      isActive: true,
+      roles,
+    }),
+  );
 }
 
 export async function registerAndLogin(
@@ -18,14 +52,6 @@ export async function registerAndLogin(
   options: {
     role?: RoleName;
     emailPrefix?: string;
-    /**
-     * Sign the access token directly with the app's JwtService instead of
-     * calling POST /auth/login. /auth/login is a public route throttled per
-     * IP (5/min by default), and every e2e request comes from the same IP,
-     * so a spec that needs more than a handful of sessions would otherwise
-     * hit 429. Use this for sessions that are just a means to an end; keep
-     * the real login for tests that exercise authentication itself.
-     */
     mintToken?: boolean;
   } = {},
 ): Promise<RegisteredUser> {
@@ -33,29 +59,12 @@ export async function registerAndLogin(
     Math.random() * 1e6,
   )}@example.com`;
 
-  await request(app.getHttpServer())
-    .post('/auth/register')
-    .send({ email, password: PASSWORD })
-    .expect(201);
-
-  if (options.role) {
-    await dataSource.query(
-      `INSERT INTO user_roles (user_id, role_id)
-       SELECT u.id, r.id FROM users u, roles r
-       WHERE u.email = $1 AND r.name = $2
-       ON CONFLICT DO NOTHING`,
-      [email, options.role],
-    );
-  }
+  const user = await seedUser(dataSource, { email, role: options.role });
 
   if (options.mintToken) {
-    const [row]: { id: string }[] = await dataSource.query(
-      `SELECT id FROM users WHERE email = $1`,
-      [email],
-    );
     const jwtService = app.get(JwtService, { strict: false });
     const accessToken = jwtService.sign(
-      { sub: row.id, email, roles: options.role ? [options.role] : [] },
+      { sub: user.id, email, roles: options.role ? [options.role] : [] },
       { expiresIn: '15m' },
     );
     return { email, accessToken };

@@ -96,15 +96,17 @@ describe('Users (e2e)', () => {
       expect(temporaryPassword).toHaveLength(16);
 
       const [row] = await dataSource.query(
-        `SELECT password_hash FROM users WHERE email = $1`,
+        `SELECT password_hash, must_change_password FROM users WHERE email = $1`,
         [email],
       );
       expect(row.password_hash).not.toBe(temporaryPassword);
+      expect(row.must_change_password).toBe(true);
 
-      await request(app.getHttpServer())
+      const loginRes = await request(app.getHttpServer())
         .post('/auth/login')
         .send({ email, password: temporaryPassword })
         .expect(200);
+      expect(loginRes.body.mustChangePassword).toBe(true);
     });
 
     it('rejects a duplicate email with 409', async () => {

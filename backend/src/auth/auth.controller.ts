@@ -24,7 +24,6 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -32,11 +31,7 @@ import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { RequestUser } from './interfaces/request-user.interface';
 import { User } from '../users/entities/user.entity';
-import {
-  AUTH_LOGIN_THROTTLE,
-  AUTH_REFRESH_THROTTLE,
-  AUTH_REGISTER_THROTTLE,
-} from './auth-rate-limit';
+import { AUTH_LOGIN_THROTTLE, AUTH_REFRESH_THROTTLE } from './auth-rate-limit';
 
 const REFRESH_COOKIE_NAME = 'refresh_token';
 
@@ -47,18 +42,6 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly config: ConfigService,
   ) {}
-
-  @Public()
-  @Throttle({ default: AUTH_REGISTER_THROTTLE })
-  @Post('register')
-  @ApiOperation({
-    summary: 'Create a new user account (role-less until an admin assigns one)',
-  })
-  @ApiOkResponse({ description: 'Account created' })
-  async register(@Body() dto: RegisterDto) {
-    const user = await this.authService.register(dto.email, dto.password);
-    return this.toPublicUser(user);
-  }
 
   @Public()
   @Throttle({ default: AUTH_LOGIN_THROTTLE })
@@ -210,13 +193,5 @@ export class AuthController {
       path: '/auth',
       maxAge: days * 24 * 60 * 60 * 1000,
     });
-  }
-
-  private toPublicUser(user: User) {
-    return {
-      id: user.id,
-      email: user.email,
-      roles: user.roles.map((r) => r.name),
-    };
   }
 }

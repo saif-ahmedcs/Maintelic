@@ -3,15 +3,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module';
+import { seedUser } from './utils/register-and-login';
 
 const PASSWORD = 'CorrectHorseBattery9!';
 const COOKIE = 'refresh_token';
 
-// This suite lives in its own file, with its own app instance, because the
-// auth endpoints are throttled per IP (login 5/min, refresh 10/min) and the
-// counters are per app instance. Budget used here: 1 register, 4 logins,
-// 5 refreshes.
 describe('Auth refresh-token cookie (e2e)', () => {
   let app: INestApplication<App>;
   const email = `auth-cookie-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
@@ -22,7 +20,6 @@ describe('Auth refresh-token cookie (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    // Mirrors main.ts: without cookie-parser, req.cookies is never populated.
     app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
@@ -33,10 +30,7 @@ describe('Auth refresh-token cookie (e2e)', () => {
     );
     await app.init();
 
-    await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({ email, password: PASSWORD })
-      .expect(201);
+    await seedUser(app.get(DataSource), { email, password: PASSWORD });
   });
 
   afterAll(async () => {

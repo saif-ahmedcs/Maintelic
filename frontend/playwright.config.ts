@@ -26,7 +26,6 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 120_000,
       env: {
-        AUTH_REGISTER_RATE_LIMIT: '1000',
         AUTH_LOGIN_RATE_LIMIT: '1000',
         AUTH_REFRESH_RATE_LIMIT: '1000',
         DEFAULT_RATE_LIMIT: '1000',

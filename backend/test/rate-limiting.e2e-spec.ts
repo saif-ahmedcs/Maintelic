@@ -4,7 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module';
-import { registerAndLogin } from './utils/register-and-login';
+import { registerAndLogin, seedUser } from './utils/register-and-login';
 
 const PASSWORD = 'CorrectHorseBattery9!';
 
@@ -31,37 +31,10 @@ describe('Rate limiting (e2e)', () => {
     await app.close();
   });
 
-  it('returns 429 with the standard error shape once /auth/register is called past its per-minute limit', async () => {
-    const tag = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    const attempt = (i: number) =>
-      request(app.getHttpServer())
-        .post('/auth/register')
-        .send({
-          email: `rl-register-${tag}-${i}@example.com`,
-          password: PASSWORD,
-        });
-
-    for (let i = 0; i < 5; i++) {
-      await attempt(i).expect(201);
-    }
-
-    const blocked = await attempt(5);
-    expect(blocked.status).toBe(429);
-    expect(blocked.body).toMatchObject({
-      statusCode: 429,
-      path: '/auth/register',
-    });
-    expect(blocked.body.timestamp).toEqual(expect.any(String));
-    expect(blocked.headers['x-request-id']).toBeDefined();
-  });
-
-  it('returns 429 once /auth/login is called past its per-minute limit', async () => {
+  it('returns 429 with the standard error shape once /auth/login is called past its per-minute limit', async () => {
     const email = `rl-login-${Date.now()}@example.com`;
 
-    await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({ email, password: PASSWORD })
-      .expect(201);
+    await seedUser(app.get(DataSource), { email, password: PASSWORD });
 
     const attemptLogin = () =>
       request(app.getHttpServer())
@@ -74,7 +47,12 @@ describe('Rate limiting (e2e)', () => {
 
     const blocked = await attemptLogin();
     expect(blocked.status).toBe(429);
-    expect(blocked.body.statusCode).toBe(429);
+    expect(blocked.body).toMatchObject({
+      statusCode: 429,
+      path: '/auth/login',
+    });
+    expect(blocked.body.timestamp).toEqual(expect.any(String));
+    expect(blocked.headers['x-request-id']).toBeDefined();
   });
 
   it('keys authenticated requests by user, so one user exhausting the limit does not block another user on the same IP', async () => {

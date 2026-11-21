@@ -57,23 +57,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/auth/register': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Create a new user account (role-less until an admin assigns one) */
-    post: operations['AuthController_register'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   '/auth/login': {
     parameters: {
       query?: never;
@@ -842,12 +825,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    RegisterDto: {
-      /** @example technician@example.com */
-      email: string;
-      /** @example ChangeMe123! */
-      password: string;
-    };
     LoginDto: {
       /** @example technician@example.com */
       email: string;
@@ -1381,28 +1358,6 @@ export interface operations {
     requestBody?: never;
     responses: {
       /** @description Paginated audit_logs rows: id, actorUserId (nullable), entityType, entityId, action, before (jsonb), after (jsonb), source, createdAt */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  AuthController_register: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['RegisterDto'];
-      };
-    };
-    responses: {
-      /** @description Account created */
       200: {
         headers: {
           [name: string]: unknown;

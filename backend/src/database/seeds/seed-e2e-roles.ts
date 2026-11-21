@@ -5,17 +5,6 @@ import { User } from '../../users/entities/user.entity';
 
 const BCRYPT_SALT_ROUNDS = 10;
 
-/**
- * Fixed, test-only credentials for roles.spec.ts (frontend/e2e). There is
- * currently no seed script or API endpoint that can create a SUPERVISOR or
- * TECHNICIAN user any other way (POST /auth/register always assigns
- * VIEWER — see auth.service.ts — and seed-admin.ts only ever creates one
- * ADMIN). This is additive only: it doesn't touch seed-admin.ts,
- * seed-demo-data.ts, or any existing endpoint.
- *
- * `.test` is a reserved TLD (RFC 2606) precisely so these read as
- * non-production fixtures, not real addresses.
- */
 export const E2E_ROLE_USERS = [
   {
     role: RoleName.SUPERVISOR,
@@ -25,6 +14,11 @@ export const E2E_ROLE_USERS = [
   {
     role: RoleName.TECHNICIAN,
     email: 'technician.e2e@example.test',
+    password: 'E2eTestPass123!',
+  },
+  {
+    role: RoleName.VIEWER,
+    email: 'viewer.e2e@example.test',
     password: 'E2eTestPass123!',
   },
 ] as const;
