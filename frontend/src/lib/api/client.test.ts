@@ -139,7 +139,10 @@ describe('request', () => {
         HttpResponse.json({ message: 'Unauthorized' }, { status: 401 }),
       ),
       http.post('/auth/refresh', () =>
-        HttpResponse.json({ message: 'Invalid refresh token' }, { status: 401 }),
+        HttpResponse.json(
+          { message: 'Invalid refresh token' },
+          { status: 401 },
+        ),
       ),
     );
 
@@ -176,5 +179,139 @@ describe('request', () => {
     expect(capturedUrl?.searchParams.get('status')).toBe('OPEN');
     expect(capturedUrl?.searchParams.get('page')).toBe('2');
     expect(capturedUrl?.searchParams.has('limit')).toBe(false);
+  });
+});
+
+describe('refresh serialization across tabs (AUTH-1)', () => {
+  const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+
+  function setLocks(value: unknown) {
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value,
+    });
+  }
+
+  beforeEach(() => {
+    setAccessToken('stale-access-token');
+  });
+
+  afterEach(() => {
+    setAccessToken(null);
+    if (originalLocks) {
+      Object.defineProperty(navigator, 'locks', originalLocks);
+    } else {
+      delete (navigator as unknown as { locks?: unknown }).locks;
+    }
+  });
+
+  function stubUnauthorizedThenOk() {
+    let thingCalls = 0;
+    let refreshCalls = 0;
+    let refreshWasInsideLock = false;
+    return {
+      handlers: (isInsideLock: () => boolean) => [
+        http.get('/thing', () => {
+          thingCalls += 1;
+          return thingCalls === 1
+            ? HttpResponse.json({ message: 'Unauthorized' }, { status: 401 })
+            : HttpResponse.json({ ok: true });
+        }),
+        http.post('/auth/refresh', () => {
+          refreshCalls += 1;
+          refreshWasInsideLock = isInsideLock();
+          return HttpResponse.json({ accessToken: 'fresh-access-token' });
+        }),
+      ],
+      refreshCalls: () => refreshCalls,
+      refreshWasInsideLock: () => refreshWasInsideLock,
+    };
+  }
+
+  it('performs the refresh while holding the browser-wide "auth-refresh" lock', async () => {
+    let held = false;
+    const lockNames: string[] = [];
+    setLocks({
+      request: async (name: string, callback: () => Promise<unknown>) => {
+        lockNames.push(name);
+        held = true;
+        try {
+          return await callback();
+        } finally {
+          held = false;
+        }
+      },
+    });
+    const stub = stubUnauthorizedThenOk();
+    server.use(...stub.handlers(() => held));
+
+    await expect(request('/thing')).resolves.toEqual({ ok: true });
+
+    expect(lockNames).toEqual(['auth-refresh']);
+    expect(stub.refreshCalls()).toBe(1);
+    expect(stub.refreshWasInsideLock()).toBe(true);
+  });
+
+  it('takes the lock once for several concurrent 401s in the same tab', async () => {
+    let lockRequests = 0;
+    setLocks({
+      request: async (_name: string, callback: () => Promise<unknown>) => {
+        lockRequests += 1;
+        return callback();
+      },
+    });
+    let refreshCalls = 0;
+    server.use(
+      http.get('/thing', ({ request: msw }) =>
+        msw.headers.get('authorization') === 'Bearer fresh-access-token'
+          ? HttpResponse.json({ ok: true })
+          : HttpResponse.json({ message: 'Unauthorized' }, { status: 401 }),
+      ),
+      http.post('/auth/refresh', () => {
+        refreshCalls += 1;
+        return HttpResponse.json({ accessToken: 'fresh-access-token' });
+      }),
+    );
+
+    await Promise.all([
+      request('/thing'),
+      request('/thing'),
+      request('/thing'),
+    ]);
+
+    expect(lockRequests).toBe(1);
+    expect(refreshCalls).toBe(1);
+  });
+
+  it('still refreshes when the Web Locks API is unavailable (e.g. insecure context)', async () => {
+    setLocks(undefined);
+    const stub = stubUnauthorizedThenOk();
+    server.use(...stub.handlers(() => false));
+
+    await expect(request('/thing')).resolves.toEqual({ ok: true });
+
+    expect(stub.refreshCalls()).toBe(1);
+  });
+
+  it('does not sign the user out when the lock holder fails transiently', async () => {
+    setLocks({
+      request: async (_name: string, callback: () => Promise<unknown>) =>
+        callback(),
+    });
+    const onSessionExpired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+    server.use(
+      http.get('/thing', () =>
+        HttpResponse.json({ message: 'Unauthorized' }, { status: 401 }),
+      ),
+      http.post('/auth/refresh', () =>
+        HttpResponse.json({ message: 'Bad gateway' }, { status: 502 }),
+      ),
+    );
+
+    await expect(request('/thing')).rejects.toBeInstanceOf(ApiError);
+
+    expect(onSessionExpired).not.toHaveBeenCalled();
+    window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
   });
 });

@@ -104,8 +104,8 @@ describe('Auth (e2e)', () => {
       .expect(401);
   });
 
-  it('treats two concurrent refreshes of the same token as reuse: one wins, the other is rejected, and the family is revoked', async () => {
-    const raceEmail = `auth-race-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
+  async function registerAndLogin(prefix: string) {
+    const raceEmail = `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
     await request(app.getHttpServer())
       .post('/auth/register')
       .send({ email: raceEmail, password })
@@ -116,7 +116,10 @@ describe('Auth (e2e)', () => {
         .send({ email: raceEmail, password })
         .expect(200)
     ).body as { refreshToken: string };
+    return { refreshToken };
+  }
 
+  async function raceTwoRefreshes(refreshToken: string) {
     const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
 
     const holder = dataSource.createQueryRunner();
@@ -133,24 +136,64 @@ describe('Auth (e2e)', () => {
         .send({ refreshToken })
         .then((res) => res);
 
-    let responses: request.Response[];
     try {
       const first = refresh();
       const second = refresh();
       await new Promise((resolve) => setTimeout(resolve, 750));
       await holder.rollbackTransaction();
-      responses = await Promise.all([first, second]);
+      return await Promise.all([first, second]);
     } finally {
       if (holder.isTransactionActive) await holder.rollbackTransaction();
       await holder.release();
     }
+  }
 
-    expect(responses.map((r) => r.status).sort()).toEqual([200, 401]);
+  it('treats two concurrent refreshes of the same token as a benign race: both succeed, only one rotates, and the winner keeps a live session', async () => {
+    const { refreshToken } = await registerAndLogin('auth-race');
 
-    const winner = responses.find((r) => r.status === 200)!;
+    const responses = await raceTwoRefreshes(refreshToken);
+
+    expect(responses.map((r) => r.status)).toEqual([200, 200]);
+
+    const withRefreshToken = responses.filter(
+      (r) => typeof r.body.refreshToken === 'string',
+    );
+    const accessOnly = responses.filter(
+      (r) => r.body.refreshToken === undefined,
+    );
+    expect(withRefreshToken).toHaveLength(1);
+    expect(accessOnly).toHaveLength(1);
+    expect(accessOnly[0].headers['set-cookie']).toBeUndefined();
+    expect(typeof accessOnly[0].body.accessToken).toBe('string');
+
     await request(app.getHttpServer())
       .post('/auth/refresh')
-      .send({ refreshToken: winner.body.refreshToken })
+      .send({ refreshToken: withRefreshToken[0].body.refreshToken })
+      .expect(200);
+  });
+
+  it('still revokes the whole family when a rotated token is replayed after the grace window', async () => {
+    const { refreshToken } = await registerAndLogin('auth-replay');
+
+    const rotated = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken })
+      .expect(200);
+
+    const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+    await dataSource.query(
+      `UPDATE refresh_tokens SET revoked_at = now() - interval '1 hour' WHERE token_hash = $1`,
+      [tokenHash],
+    );
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken })
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: rotated.body.refreshToken })
       .expect(401);
   });
 });

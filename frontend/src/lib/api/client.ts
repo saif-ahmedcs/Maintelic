@@ -63,11 +63,24 @@ function invalidateSession(): void {
   window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
 }
 
+const REFRESH_LOCK_NAME = 'auth-refresh';
+
 let refreshPromise: Promise<void> | null = null;
+
+function withRefreshLock<T>(task: () => Promise<T>): Promise<T> {
+  const locks =
+    typeof navigator !== 'undefined'
+      ? (navigator as Navigator & { locks?: LockManager }).locks
+      : undefined;
+  if (!locks || typeof locks.request !== 'function') {
+    return task();
+  }
+  return locks.request(REFRESH_LOCK_NAME, task) as Promise<T>;
+}
 
 function performRefresh(): Promise<void> {
   if (!refreshPromise) {
-    refreshPromise = refreshAccessToken().finally(() => {
+    refreshPromise = withRefreshLock(refreshAccessToken).finally(() => {
       refreshPromise = null;
     });
   }

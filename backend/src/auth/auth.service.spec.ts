@@ -1,6 +1,6 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { AuthService } from './auth.service';
+import { AuthService, REFRESH_ROTATION_GRACE_MS } from './auth.service';
 import { RoleName } from '../users/entities/role.entity';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -213,6 +213,104 @@ describe('AuthService', () => {
         { userId: 'user-1', revokedAt: expect.anything() },
         { revokedAt: expect.any(Date) },
       );
+    });
+
+    describe('rotation race grace window (concurrent tabs)', () => {
+      const liveSuccessor = () => ({
+        id: 'refresh-2',
+        userId: 'user-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      const rotatedRecord = (ageMs: number) => ({
+        id: 'refresh-1',
+        userId: 'user-1',
+        revokedAt: new Date(Date.now() - ageMs),
+        replacedById: 'refresh-2',
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      const mockEntities = (successor: unknown) => {
+        manager.findOne.mockImplementation(async (entity: unknown) =>
+          entity === RefreshToken ? successor : activeUser,
+        );
+      };
+
+      it('issues an access token only, without rotating or revoking, when the token was rotated moments ago and its successor is live', async () => {
+        lockQb.getOne.mockResolvedValue(rotatedRecord(500));
+        mockEntities(liveSuccessor());
+
+        const result = await service.refresh('just-rotated-token');
+
+        expect(result).toEqual({ accessToken: 'signed.jwt.token' });
+        expect(result.refreshToken).toBeUndefined();
+        expect(refreshTokenRepo.update).not.toHaveBeenCalled();
+        expect(refreshTokenRepo.save).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+      });
+
+      it('treats a rotated token as reuse once the grace window has elapsed', async () => {
+        lockQb.getOne.mockResolvedValue(
+          rotatedRecord(REFRESH_ROTATION_GRACE_MS + 1_000),
+        );
+        mockEntities(liveSuccessor());
+
+        await expect(service.refresh('old-rotated-token')).rejects.toThrow(
+          'Refresh token has already been used',
+        );
+        expect(refreshTokenRepo.update).toHaveBeenCalledWith(
+          { userId: 'user-1', revokedAt: expect.anything() },
+          { revokedAt: expect.any(Date) },
+        );
+      });
+
+      it('treats a recently rotated token as reuse when its successor has already been revoked', async () => {
+        lockQb.getOne.mockResolvedValue(rotatedRecord(500));
+        mockEntities({ ...liveSuccessor(), revokedAt: new Date() });
+
+        await expect(service.refresh('rotated-token')).rejects.toThrow(
+          'Refresh token has already been used',
+        );
+        expect(refreshTokenRepo.update).toHaveBeenCalled();
+      });
+
+      it('treats a recently rotated token as reuse when its successor no longer exists', async () => {
+        lockQb.getOne.mockResolvedValue(rotatedRecord(500));
+        mockEntities(null);
+
+        await expect(service.refresh('rotated-token')).rejects.toThrow(
+          'Refresh token has already been used',
+        );
+      });
+
+      it('never applies the grace window to a token revoked by logout or password change (no successor)', async () => {
+        lockQb.getOne.mockResolvedValue({
+          id: 'refresh-1',
+          userId: 'user-1',
+          revokedAt: new Date(Date.now() - 500),
+          replacedById: null,
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+        mockEntities(liveSuccessor());
+
+        await expect(service.refresh('logged-out-token')).rejects.toThrow(
+          'Refresh token has already been used',
+        );
+      });
+
+      it('rejects an inactive account even inside the grace window', async () => {
+        lockQb.getOne.mockResolvedValue(rotatedRecord(500));
+        manager.findOne.mockImplementation(async (entity: unknown) =>
+          entity === RefreshToken
+            ? liveSuccessor()
+            : { ...activeUser, isActive: false },
+        );
+
+        await expect(service.refresh('just-rotated-token')).rejects.toThrow(
+          'Account is no longer active',
+        );
+      });
     });
 
     it('rejects an expired refresh token', async () => {

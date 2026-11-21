@@ -26,9 +26,12 @@ describe('AuthController refresh-token cookie', () => {
     };
     configValues = { NODE_ENV: 'development', JWT_REFRESH_EXPIRES_IN_DAYS: 7 };
     res = { cookie: jest.fn(), clearCookie: jest.fn() };
-    controller = new AuthController(authService as any, {
-      get: jest.fn((key: string) => configValues[key]),
-    } as any);
+    controller = new AuthController(
+      authService as any,
+      {
+        get: jest.fn((key: string) => configValues[key]),
+      } as any,
+    );
   });
 
   describe('login', () => {
@@ -120,6 +123,19 @@ describe('AuthController refresh-token cookie', () => {
         'refresh-2',
         expect.objectContaining({ httpOnly: true, path: '/auth' }),
       );
+    });
+
+    it('returns only an access token and leaves the cookie untouched when the call lost a benign rotation race', async () => {
+      authService.refresh.mockResolvedValue({ accessToken: 'access-3' });
+
+      const result = await controller.refresh(
+        requestWithCookies({ [COOKIE_NAME]: 'cookie-token' }),
+        body(),
+        asResponse(),
+      );
+
+      expect(result).toEqual({ accessToken: 'access-3' });
+      expect(res.cookie).not.toHaveBeenCalled();
     });
 
     it('prefers the cookie token over a body token when both are present', async () => {

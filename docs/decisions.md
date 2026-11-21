@@ -40,3 +40,17 @@ Record of answers to the open items raised in the UI handoff. Each entry notes w
 Route paths remain unchanged: all four endpoints are still mounted under `/users/*`. `UsersService` itself has no dependency on `AuthService`; instead, the controller directly calls `authService.revokeAllForUser(user.id)` after `usersService.updateProfile(...)` confirms that the user has just been deactivated.
 
 | Engineering | 2026-10-30 |
+
+## Refresh-token rotation: cross-tab serialization and grace window (AUTH-1)
+
+Refresh tokens rotate on every use and presenting an already-rotated token revokes the user's whole token family. Two tabs or windows of one browser share the refresh cookie, so refreshing at the same moment (for example when a browser restores several app tabs) looked like token replay: one tab was signed out, the other's new token was revoked, and every other session of the user was lost.
+
+Two layers now prevent this:
+
+(1) **Frontend** (`frontend/src/lib/api/client.ts`): the refresh call runs inside a browser-wide Web Lock (`navigator.locks`, name `auth-refresh`), so tabs refresh one after another and each carries the already-rotated cookie. `navigator.locks` exists only in secure contexts; where it is missing the call runs unserialized and layer (2) absorbs the race.
+
+(2) **Backend** (`AuthService.refresh`): a token that was rotated at most `REFRESH_ROTATION_GRACE_MS` (10 s) ago, whose successor is still live, is not treated as replay. The request receives a new access token only. No new refresh token is issued and the cookie is not touched, so the winner's cookie stays valid. Tokens revoked by logout, password change or family revocation have no successor and are never eligible. After the window, presenting a rotated token revokes the family as before.
+
+**Trade-off:** within those 10 seconds a replayed, just-rotated token can obtain one access token (15 min by default) but never a refresh token. Raise or lower the constant to tune this.
+
+| Engineering | 2026-11-21 |

@@ -11,7 +11,9 @@ test.describe('auth', () => {
   test('shows an error for a wrong password', async ({ page }) => {
     await page.goto('login');
     await page.getByLabel('Email').fill(ADMIN_EMAIL);
-    await page.getByLabel('Password').fill('definitely-not-the-password');
+    await page
+      .getByLabel('Password', { exact: true })
+      .fill('definitely-not-the-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByRole('alert')).toHaveText(
@@ -34,7 +36,7 @@ test.describe('auth', () => {
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 
     await page.getByLabel('Email').fill(ADMIN_EMAIL);
-    await page.getByLabel('Password').fill(ADMIN_PASSWORD);
+    await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page).toHaveURL(/\/app\/work-orders$/);
   });

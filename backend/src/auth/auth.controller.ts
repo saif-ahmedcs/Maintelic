@@ -102,7 +102,9 @@ export class AuthController {
   @ApiOkResponse({
     description:
       'A newly issued access token and refresh token. The rotated refresh ' +
-      'token is also set as an httpOnly cookie.',
+      'token is also set as an httpOnly cookie. If the presented token was ' +
+      'rotated by a concurrent request within the last few seconds, only a ' +
+      'new access token is returned and the cookie is left unchanged.',
   })
   @ApiUnauthorizedResponse({
     description: 'The refresh token is invalid, expired, or already revoked',
@@ -117,7 +119,9 @@ export class AuthController {
       throw new UnauthorizedException('Refresh token is required');
     }
     const tokens = await this.authService.refresh(presentedToken);
-    this.setRefreshCookie(res, tokens.refreshToken);
+    if (tokens.refreshToken) {
+      this.setRefreshCookie(res, tokens.refreshToken);
+    }
     return tokens;
   }
 

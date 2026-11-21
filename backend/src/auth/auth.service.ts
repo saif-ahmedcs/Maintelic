@@ -19,9 +19,16 @@ import { JwtPayload } from './interfaces/jwt-payload.interface';
 
 const BCRYPT_SALT_ROUNDS = 10;
 
+export const REFRESH_ROTATION_GRACE_MS = 10_000;
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+export interface RefreshResult {
+  accessToken: string;
+  refreshToken?: string;
 }
 
 @Injectable()
@@ -78,14 +85,15 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  async refresh(presentedToken: string): Promise<AuthTokens> {
+  async refresh(presentedToken: string): Promise<RefreshResult> {
     const tokenHash = this.hashToken(presentedToken);
 
     const outcome = await this.dataSource.transaction(
       async (
         manager,
       ): Promise<
-        { reuseDetected: true } | { reuseDetected: false; tokens: AuthTokens }
+        | { reuseDetected: true }
+        | { reuseDetected: false; tokens: RefreshResult }
       > => {
         const existing = await manager
           .createQueryBuilder(RefreshToken, 'token')
@@ -98,6 +106,23 @@ export class AuthService {
         }
 
         if (existing.revokedAt) {
+          const raceWinner = await this.findRotationRaceSuccessor(
+            existing,
+            manager,
+          );
+          if (raceWinner) {
+            const raceUser = await manager.findOne(User, {
+              where: { id: existing.userId },
+            });
+            if (!raceUser || !raceUser.isActive) {
+              throw new UnauthorizedException('Account is no longer active');
+            }
+            return {
+              reuseDetected: false,
+              tokens: { accessToken: this.signAccessToken(raceUser) },
+            };
+          }
+
           await this.revokeAllForUser(existing.userId, manager);
           return { reuseDetected: true };
         }
@@ -152,6 +177,31 @@ export class AuthService {
 
     current.revokedAt = new Date();
     await this.refreshTokenRepo.save(current);
+  }
+
+  private async findRotationRaceSuccessor(
+    revoked: RefreshToken,
+    manager: EntityManager,
+  ): Promise<RefreshToken | null> {
+    if (!revoked.replacedById || !revoked.revokedAt) {
+      return null;
+    }
+    const age = Date.now() - revoked.revokedAt.getTime();
+    if (age > REFRESH_ROTATION_GRACE_MS) {
+      return null;
+    }
+    const successor = await manager.findOne(RefreshToken, {
+      where: { id: revoked.replacedById },
+    });
+    if (
+      !successor ||
+      successor.userId !== revoked.userId ||
+      successor.revokedAt ||
+      successor.expiresAt.getTime() < Date.now()
+    ) {
+      return null;
+    }
+    return successor;
   }
 
   private signAccessToken(user: User): string {
