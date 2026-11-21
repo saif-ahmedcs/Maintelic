@@ -123,9 +123,11 @@ export class WorkOrdersService {
     actor: RequestUser,
   ): Promise<WorkOrder> {
     return this.dataSource.transaction(async (manager) => {
-      const asset = await manager.findOneBy(Asset, { id: dto.assetId });
-      if (!asset) {
-        throw new NotFoundException(`Asset ${dto.assetId} not found`);
+      const asset = await this.lockAsset(manager, dto.assetId);
+      if (asset.status === AssetStatus.DECOMMISSIONED) {
+        throw new ConflictException(
+          `Asset ${dto.assetId} is decommissioned; work orders cannot be created for it`,
+        );
       }
 
       let source = WorkOrderSource.MANUAL;
@@ -408,7 +410,9 @@ export class WorkOrdersService {
 
       const asset = await this.lockAsset(manager, workOrder.assetId);
       const assetStatusBefore = asset.status;
-      const assetStatusChanged = assetStatusBefore !== AssetStatus.OPERATIONAL;
+      const assetStatusChanged =
+        assetStatusBefore !== AssetStatus.OPERATIONAL &&
+        assetStatusBefore !== AssetStatus.DECOMMISSIONED;
       let savedAsset = asset;
       if (assetStatusChanged) {
         asset.status = AssetStatus.OPERATIONAL;

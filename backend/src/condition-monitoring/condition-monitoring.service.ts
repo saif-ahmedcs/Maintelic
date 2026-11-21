@@ -46,6 +46,14 @@ export class ConditionMonitoringService {
   ) {}
 
   async evaluateAsset(assetId: string): Promise<void> {
+    const current = await this.dataSource.manager.findOne(Asset, {
+      where: { id: assetId },
+      select: { id: true, status: true },
+    });
+    if (current?.status === AssetStatus.DECOMMISSIONED) {
+      return;
+    }
+
     const recent = await this.readingRepo.find({
       where: { assetId },
       order: { ingestedAt: 'DESC' },
@@ -56,22 +64,20 @@ export class ConditionMonitoringService {
       return;
     }
 
-    const [hasActiveAutoWorkOrder, hasActiveNotification] = await Promise.all(
-      [
-        this.workOrderRepo.exists({
-          where: {
-            assetId,
-            source: WorkOrderSource.AUTO,
-            status: In(ACTIVE_WORK_ORDER_STATUSES),
-          },
-        }),
-        this.notificationsService.hasActiveNotification(
-          NotificationType.CRITICAL_ASSET,
-          'Asset',
+    const [hasActiveAutoWorkOrder, hasActiveNotification] = await Promise.all([
+      this.workOrderRepo.exists({
+        where: {
           assetId,
-        ),
-      ],
-    );
+          source: WorkOrderSource.AUTO,
+          status: In(ACTIVE_WORK_ORDER_STATUSES),
+        },
+      }),
+      this.notificationsService.hasActiveNotification(
+        NotificationType.CRITICAL_ASSET,
+        'Asset',
+        assetId,
+      ),
+    ]);
     if (hasActiveAutoWorkOrder || hasActiveNotification) {
       return;
     }
@@ -100,10 +106,21 @@ export class ConditionMonitoringService {
       : null;
 
     await this.dataSource.transaction(async (manager) => {
-      const asset = await manager.findOneBy(Asset, { id: assetId });
+      // Lock the row so a concurrent decommission cannot slip in between the
+      // check below and the status write.
+      const asset = await manager.findOne(Asset, {
+        where: { id: assetId },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!asset) {
         this.logger.warn(
           `Condition monitoring: asset ${assetId} no longer exists, skipping`,
+        );
+        return;
+      }
+      if (asset.status === AssetStatus.DECOMMISSIONED) {
+        this.logger.warn(
+          `Condition monitoring: asset ${assetId} was decommissioned, skipping`,
         );
         return;
       }

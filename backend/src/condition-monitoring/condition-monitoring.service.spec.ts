@@ -1,3 +1,4 @@
+import { Asset, AssetStatus } from '../assets/entities/asset.entity';
 import { ConditionMonitoringService } from './condition-monitoring.service';
 
 describe('ConditionMonitoringService', () => {
@@ -96,5 +97,86 @@ describe('ConditionMonitoringService', () => {
       'asset-1',
     );
     expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  describe('DECOMMISSIONED assets', () => {
+    const hot = [{ temperature: 90 }, { temperature: 90 }, { temperature: 90 }];
+
+    it('skips evaluation entirely: no status change, work order, notification, history or AI call', async () => {
+      dataSource.manager.findOne.mockResolvedValue({
+        id: 'asset-1',
+        status: AssetStatus.DECOMMISSIONED,
+      });
+      readingRepo.find.mockResolvedValue(hot);
+
+      await service.evaluateAsset('asset-1');
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(workOrderRepo.exists).not.toHaveBeenCalled();
+      expect(notificationsService.record).not.toHaveBeenCalled();
+      expect(auditService.record).not.toHaveBeenCalled();
+      expect(assetHistoryService.record).not.toHaveBeenCalled();
+      expect(aiInsightsService.generate).not.toHaveBeenCalled();
+    });
+
+    it('re-checks under a row lock and aborts if the asset was decommissioned after the initial check', async () => {
+      dataSource.manager.findOne.mockResolvedValue({
+        id: 'asset-1',
+        status: AssetStatus.OPERATIONAL,
+        tag: 'A-1',
+      });
+      readingRepo.find.mockResolvedValue(hot);
+      const txAsset = { id: 'asset-1', status: AssetStatus.DECOMMISSIONED };
+      const txManager = {
+        findOne: jest.fn(async () => txAsset),
+        save: jest.fn(),
+        create: jest.fn(),
+      };
+      dataSource.transaction.mockImplementation((cb: any) => cb(txManager));
+
+      await service.evaluateAsset('asset-1');
+
+      expect(txManager.findOne).toHaveBeenCalledWith(
+        Asset,
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+      expect(txAsset.status).toBe(AssetStatus.DECOMMISSIONED);
+      expect(txManager.save).not.toHaveBeenCalled();
+      expect(auditService.record).not.toHaveBeenCalled();
+      expect(assetHistoryService.record).not.toHaveBeenCalled();
+      expect(notificationsService.record).not.toHaveBeenCalled();
+    });
+
+    it('still marks a non-decommissioned asset CRITICAL and opens a work order + notification', async () => {
+      dataSource.manager.findOne.mockResolvedValue({
+        id: 'asset-1',
+        status: AssetStatus.OPERATIONAL,
+        tag: 'A-1',
+      });
+      readingRepo.find.mockResolvedValue(hot);
+      const txAsset = {
+        id: 'asset-1',
+        tag: 'A-1',
+        status: AssetStatus.OPERATIONAL,
+      };
+      const txManager = {
+        findOne: jest.fn(async () => txAsset),
+        create: jest.fn((_e: unknown, plain: object) => plain),
+        save: jest.fn(async (e: object) => ({ id: 'x', ...e })),
+      };
+      dataSource.transaction.mockImplementation((cb: any) => cb(txManager));
+
+      await service.evaluateAsset('asset-1');
+
+      expect(txAsset.status).toBe(AssetStatus.CRITICAL);
+      expect(assetHistoryService.record).toHaveBeenCalledWith(
+        txManager,
+        expect.objectContaining({
+          previousStatus: AssetStatus.OPERATIONAL,
+          newStatus: AssetStatus.CRITICAL,
+        }),
+      );
+      expect(notificationsService.record).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -240,6 +240,42 @@ describe('WorkOrdersService.complete', () => {
     );
   });
 
+  it('completes the work order but never reactivates a DECOMMISSIONED asset', async () => {
+    asset.status = AssetStatus.DECOMMISSIONED;
+
+    const result = await service.complete('wo-1', {}, technician);
+
+    expect(result.status).toBe(WorkOrderStatus.COMPLETED);
+    expect(asset.status).toBe(AssetStatus.DECOMMISSIONED);
+    expect(manager.save).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'asset-1' }),
+    );
+    expect(assetHistoryService.record).not.toHaveBeenCalled();
+    expect(auditService.record).not.toHaveBeenCalledWith(
+      manager,
+      expect.objectContaining({ action: 'STATUS_CHANGE' }),
+    );
+    expect(auditService.record).toHaveBeenCalledWith(
+      manager,
+      expect.objectContaining({ action: 'COMPLETE' }),
+    );
+  });
+
+  it('still reactivates a non-decommissioned asset to OPERATIONAL on completion', async () => {
+    asset.status = AssetStatus.UNDER_MAINTENANCE;
+
+    await service.complete('wo-1', {}, technician);
+
+    expect(asset.status).toBe(AssetStatus.OPERATIONAL);
+    expect(assetHistoryService.record).toHaveBeenCalledWith(
+      manager,
+      expect.objectContaining({
+        previousStatus: AssetStatus.UNDER_MAINTENANCE,
+        newStatus: AssetStatus.OPERATIONAL,
+      }),
+    );
+  });
+
   it('allows a supervisor who is not the assignee to complete it', async () => {
     workOrder.assignedToUserId = 'someone-else';
 
@@ -447,5 +483,79 @@ describe('WorkOrdersService.complete', () => {
       expect(result.status).toBe(WorkOrderStatus.IN_PROGRESS);
       expect(result.blockReason).toBeNull();
     });
+  });
+});
+
+describe('WorkOrdersService.create', () => {
+  let service: WorkOrdersService;
+  let manager: {
+    findOneBy: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
+  let assetLockQb: { setLock: jest.Mock; where: jest.Mock; getOne: jest.Mock };
+  let auditService: { record: jest.Mock };
+  let asset: Asset;
+
+  const actor: RequestUser = {
+    id: 'super-1',
+    email: 'super@example.com',
+    roles: [RoleName.SUPERVISOR],
+  };
+
+  beforeEach(() => {
+    asset = { id: 'asset-1', status: AssetStatus.OPERATIONAL } as Asset;
+    assetLockQb = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getOne: jest.fn(async () => asset),
+    };
+    manager = {
+      createQueryBuilder: jest.fn(() => assetLockQb),
+      findOneBy: jest.fn(async () => null),
+      create: jest.fn((_entity, plain) => plain),
+      save: jest.fn(async (entity) => ({ ...entity, id: 'wo-new' })),
+    };
+    auditService = { record: jest.fn(async () => ({})) };
+    service = new WorkOrdersService(
+      {} as any,
+      { transaction: jest.fn((cb) => cb(manager)) } as any,
+      auditService as any,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  it('rejects creating a work order for a DECOMMISSIONED asset', async () => {
+    asset.status = AssetStatus.DECOMMISSIONED;
+
+    await expect(
+      service.create({ assetId: 'asset-1', description: 'x' } as any, actor),
+    ).rejects.toThrow(ConflictException);
+    expect(manager.save).not.toHaveBeenCalled();
+    expect(auditService.record).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundException when the asset does not exist', async () => {
+    assetLockQb.getOne.mockResolvedValue(null);
+
+    await expect(
+      service.create({ assetId: 'missing', description: 'x' } as any, actor),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('locks the asset and creates the work order for a non-decommissioned asset', async () => {
+    const result = await service.create(
+      { assetId: 'asset-1', description: 'x' } as any,
+      actor,
+    );
+
+    expect(assetLockQb.setLock).toHaveBeenCalledWith('pessimistic_write');
+    expect(result.id).toBe('wo-new');
+    expect(auditService.record).toHaveBeenCalledWith(
+      manager,
+      expect.objectContaining({ action: 'CREATE' }),
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { AssetType } from '../asset-types/entities/asset-type.entity';
 import { RequestUser } from '../auth/interfaces/request-user.interface';
 import { Location } from '../locations/entities/location.entity';
@@ -11,6 +11,7 @@ describe('AssetsService', () => {
   let service: AssetsService;
   let assetRepo: { findOneBy: jest.Mock; createQueryBuilder: jest.Mock };
   let manager: {
+    findOne: jest.Mock;
     findOneBy: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
@@ -29,6 +30,7 @@ describe('AssetsService', () => {
   beforeEach(() => {
     assetRepo = { findOneBy: jest.fn(), createQueryBuilder: jest.fn() };
     manager = {
+      findOne: jest.fn(),
       findOneBy: jest.fn(),
       create: jest.fn((_entity, plain) => plain),
       save: jest.fn(async (entity) => ({ ...entity, id: 'asset-1' })),
@@ -244,7 +246,7 @@ describe('AssetsService', () => {
 
   describe('updateStatus', () => {
     it('throws NotFoundException when the asset does not exist', async () => {
-      manager.findOneBy.mockResolvedValue(null);
+      manager.findOne.mockResolvedValue(null);
 
       await expect(
         service.updateStatus(
@@ -256,7 +258,7 @@ describe('AssetsService', () => {
     });
 
     it('records a STATUS_CHANGE audit entry and a matching history row', async () => {
-      manager.findOneBy.mockResolvedValue({
+      manager.findOne.mockResolvedValue({
         id: 'asset-1',
         status: AssetStatus.OPERATIONAL,
       });
@@ -290,7 +292,7 @@ describe('AssetsService', () => {
     });
 
     it('skips the audit and history writes when the status is unchanged', async () => {
-      manager.findOneBy.mockResolvedValue({
+      manager.findOne.mockResolvedValue({
         id: 'asset-1',
         status: AssetStatus.OPERATIONAL,
       });
@@ -305,6 +307,46 @@ describe('AssetsService', () => {
       expect(manager.save).not.toHaveBeenCalled();
       expect(auditService.record).not.toHaveBeenCalled();
       expect(assetHistoryService.record).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      AssetStatus.OPERATIONAL,
+      AssetStatus.UNDER_MAINTENANCE,
+      AssetStatus.CRITICAL,
+    ])(
+      'rejects changing a DECOMMISSIONED asset to %s and writes nothing',
+      async (target) => {
+        manager.findOne.mockResolvedValue({
+          id: 'asset-1',
+          status: AssetStatus.DECOMMISSIONED,
+        });
+
+        await expect(
+          service.updateStatus('asset-1', { status: target } as any, actor),
+        ).rejects.toThrow(ConflictException);
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(auditService.record).not.toHaveBeenCalled();
+        expect(assetHistoryService.record).not.toHaveBeenCalled();
+      },
+    );
+
+    it('locks the asset row while changing its status', async () => {
+      manager.findOne.mockResolvedValue({
+        id: 'asset-1',
+        status: AssetStatus.OPERATIONAL,
+      });
+      manager.save.mockImplementation(async (entity) => entity);
+
+      await service.updateStatus(
+        'asset-1',
+        { status: AssetStatus.CRITICAL } as any,
+        actor,
+      );
+
+      expect(manager.findOne).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
     });
   });
 

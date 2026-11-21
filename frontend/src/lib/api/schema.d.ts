@@ -1409,7 +1409,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description A newly issued access token and refresh token. The rotated refresh token is also set as an httpOnly cookie. */
+      /** @description A newly issued access token and refresh token. The rotated refresh token is also set as an httpOnly cookie. If the presented token was rotated by a concurrent request within the last few seconds, only a new access token is returned and the cookie is left unchanged. */
       200: {
         headers: {
           [name: string]: unknown;

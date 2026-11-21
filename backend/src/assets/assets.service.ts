@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { AssetType } from '../asset-types/entities/asset-type.entity';
@@ -11,7 +15,7 @@ import { AssetQueryDto } from './dto/asset-query.dto';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { UpdateAssetStatusDto } from './dto/update-asset-status.dto';
-import { Asset } from './entities/asset.entity';
+import { Asset, AssetStatus } from './entities/asset.entity';
 
 const SORTABLE_FIELDS = ['asset.tag', 'asset.status', 'asset.criticality'];
 
@@ -184,13 +188,24 @@ export class AssetsService {
     actor: RequestUser,
   ): Promise<Asset> {
     return this.dataSource.transaction(async (manager) => {
-      const asset = await manager.findOneBy(Asset, { id });
+      // Lock the row so concurrent writers (telemetry, work-order completion)
+      // are serialized with this status change.
+      const asset = await manager.findOne(Asset, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!asset) {
         throw new NotFoundException(`Asset ${id} not found`);
       }
 
       if (asset.status === dto.status) {
         return asset;
+      }
+
+      if (asset.status === AssetStatus.DECOMMISSIONED) {
+        throw new ConflictException(
+          `Asset ${id} is decommissioned and its status cannot be changed`,
+        );
       }
 
       const before = { status: asset.status };
