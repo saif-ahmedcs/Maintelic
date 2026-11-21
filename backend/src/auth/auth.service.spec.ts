@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { RoleName } from '../users/entities/role.entity';
 import { User } from '../users/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { InvalidCurrentPasswordException } from './exceptions/invalid-current-password.exception';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -387,6 +388,34 @@ describe('AuthService', () => {
 
       expect(manager.save).not.toHaveBeenCalled();
       expect(refreshTokenRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a wrong current password with a response body that is distinguishable from a guard-level 401 (P1-2)', async () => {
+      await expect(
+        service.changePassword(
+          'user-1',
+          'WrongPassword123!',
+          'NewPassword1234!',
+        ),
+      ).rejects.toThrow(InvalidCurrentPasswordException);
+
+      try {
+        await service.changePassword(
+          'user-1',
+          'WrongPassword123!',
+          'NewPassword1234!',
+        );
+        throw new Error('expected changePassword to throw');
+      } catch (error) {
+        expect(error).toBeInstanceOf(InvalidCurrentPasswordException);
+        expect(
+          (error as InvalidCurrentPasswordException).getResponse(),
+        ).toEqual({
+          statusCode: 401,
+          error: 'InvalidCurrentPassword',
+          message: 'Current password is incorrect',
+        });
+      }
     });
 
     it('hashes the new password, clears mustChangePassword, and never stores the password in plaintext', async () => {

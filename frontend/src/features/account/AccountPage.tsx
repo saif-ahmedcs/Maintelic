@@ -8,8 +8,12 @@ import { Heading } from '../../design/Heading';
 import { StatusTag } from '../../design/StatusTag';
 import { Surface } from '../../design/Surface';
 import { ApiError, toUserMessage } from '../../lib/api/errors';
-import { refreshSessionUser, useSession } from '../../lib/auth/session';
-import { changePassword } from './api';
+import {
+  refreshSessionUser,
+  restoreSession,
+  useSession,
+} from '../../lib/auth/session';
+import { changePassword, INVALID_CURRENT_PASSWORD_CODE } from './api';
 
 interface PasswordFormValues {
   currentPassword: string;
@@ -78,9 +82,18 @@ export default function AccountPage() {
       setJustChanged(false);
 
       if (error instanceof ApiError && error.status === 401) {
-        setFieldErrors({ currentPassword: error.message });
-        setFormError(null);
-        currentPasswordRef.current?.focus();
+        if (error.code === INVALID_CURRENT_PASSWORD_CODE) {
+          // The service actually checked the typed password and it didn't
+          // match — this is the one 401 that belongs on this field.
+          setFieldErrors({ currentPassword: error.message });
+          setFormError(null);
+          currentPasswordRef.current?.focus();
+          return;
+        }
+
+        setFieldErrors({});
+        setFormError('Your session needed to be refreshed. Please try again.');
+        void restoreSession();
         return;
       }
 

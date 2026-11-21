@@ -277,7 +277,7 @@ describe('AccountPage', () => {
       );
     });
 
-    it('shows "current password is incorrect" on the current-password field for a 401, without signing the user out', async () => {
+    it('shows "current password is incorrect" on the current-password field for a real password-check 401, without signing the user out', async () => {
       mockSession(BASE_USER);
       await signIn({ accessToken: 'token', refreshToken: 'refresh' });
       const user = userEvent.setup();
@@ -285,7 +285,11 @@ describe('AccountPage', () => {
       server.use(
         http.patch('/auth/password', () =>
           HttpResponse.json(
-            { message: 'Current password is incorrect' },
+            {
+              statusCode: 401,
+              error: 'InvalidCurrentPassword',
+              message: 'Current password is incorrect',
+            },
             { status: 401 },
           ),
         ),
@@ -313,6 +317,95 @@ describe('AccountPage', () => {
       expect(
         screen.getByRole('heading', { name: 'Jordan Reyes' }),
       ).toBeInTheDocument();
+    });
+
+    it('treats a guard-level 401 (expired access token) as a session issue, not a wrong password (P1-2)', async () => {
+      mockSession(BASE_USER);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      const user = userEvent.setup();
+
+      let refreshCalls = 0;
+      server.use(
+        http.patch('/auth/password', () =>
+          HttpResponse.json(
+            { statusCode: 401, message: 'Unauthorized' },
+            {
+              status: 401,
+            },
+          ),
+        ),
+        http.post('/auth/refresh', () => {
+          refreshCalls += 1;
+          return HttpResponse.json({ accessToken: 'refreshed-token' });
+        }),
+      );
+
+      renderPage();
+      await screen.findByRole('heading', { name: 'Jordan Reyes' });
+
+      await fillAndSubmit(user, {
+        current: 'CorrectHorseBattery9!',
+        next: 'a-brand-new-password-12',
+        confirm: 'a-brand-new-password-12',
+      });
+
+      expect(
+        await screen.findByText(
+          'Your session needed to be refreshed. Please try again.',
+        ),
+      ).toBeInTheDocument();
+      // Crucially, this must never be attributed to the current-password
+      // field, or shown as "Current password is incorrect".
+      expect(screen.queryByLabelText('Current password')).toHaveValue(
+        'CorrectHorseBattery9!',
+      );
+      expect(
+        screen.queryByText('Current password is incorrect'),
+      ).not.toBeInTheDocument();
+      // Still signed in — and we actually refreshed the token in the
+      // background rather than just showing an error.
+      expect(
+        screen.getByRole('heading', { name: 'Jordan Reyes' }),
+      ).toBeInTheDocument();
+      await waitFor(() => expect(refreshCalls).toBe(1));
+    });
+
+    it('signs the user out if the refresh token has also expired after a guard-level 401 (P1-2)', async () => {
+      mockSession(BASE_USER);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      const user = userEvent.setup();
+
+      server.use(
+        http.patch('/auth/password', () =>
+          HttpResponse.json(
+            { statusCode: 401, message: 'Unauthorized' },
+            {
+              status: 401,
+            },
+          ),
+        ),
+        http.post('/auth/refresh', () =>
+          HttpResponse.json(
+            { statusCode: 401, message: 'Refresh token has expired' },
+            { status: 401 },
+          ),
+        ),
+      );
+
+      renderPage();
+      await screen.findByRole('heading', { name: 'Jordan Reyes' });
+
+      await fillAndSubmit(user, {
+        current: 'CorrectHorseBattery9!',
+        next: 'a-brand-new-password-12',
+        confirm: 'a-brand-new-password-12',
+      });
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('heading', { name: 'Jordan Reyes' }),
+        ).not.toBeInTheDocument(),
+      );
     });
 
     it('shows a generic form error for an unexpected server failure', async () => {

@@ -130,13 +130,35 @@ describe('Account and password (e2e, B3)', () => {
 
   describe('PATCH /auth/password', () => {
     it('rejects an unauthenticated request with 401', async () => {
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .patch('/auth/password')
         .send({
           currentPassword: 'whatever',
           newPassword: 'BrandNewPassword123!',
         })
         .expect(401);
+
+      expect(res.body.error).not.toBe('InvalidCurrentPassword');
+    });
+
+    it('rejects an expired access token with the same guard-level 401 shape, not the current-password error (P1-2)', async () => {
+      const user = await createUser('expired-token');
+      const expiredToken = jwtService.sign(
+        { sub: user.id, email: user.email, roles: [RoleName.VIEWER] },
+        { expiresIn: '-1s' },
+      );
+
+      const res = await request(app.getHttpServer())
+        .patch('/auth/password')
+        .set('Authorization', `Bearer ${expiredToken}`)
+        .send({
+          currentPassword: user.temporaryPassword,
+          newPassword: 'BrandNewPassword123!',
+        })
+        .expect(401);
+
+      expect(res.body.error).not.toBe('InvalidCurrentPassword');
+      expect(res.body.message).not.toBe('Current password is incorrect');
     });
 
     it('rejects a new password under 12 characters with 400', async () => {
@@ -154,7 +176,7 @@ describe('Account and password (e2e, B3)', () => {
       const user = await createUser('self-change-wrong');
       const token = mintAccessToken(user);
 
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .patch('/auth/password')
         .set('Authorization', `Bearer ${token}`)
         .send({
@@ -162,6 +184,9 @@ describe('Account and password (e2e, B3)', () => {
           newPassword: 'BrandNewPassword123!',
         })
         .expect(401);
+
+      expect(res.body.error).toBe('InvalidCurrentPassword');
+      expect(res.body.message).toBe('Current password is incorrect');
 
       const [row] = await dataSource.query(
         `SELECT must_change_password FROM users WHERE id = $1`,

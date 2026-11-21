@@ -14,6 +14,7 @@ import { Role, RoleName } from '../users/entities/role.entity';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { InvalidCurrentPasswordException } from './exceptions/invalid-current-password.exception';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 
 const BCRYPT_SALT_ROUNDS = 10;
@@ -218,7 +219,7 @@ export class AuthService {
 
       const matches = await bcrypt.compare(currentPassword, user.passwordHash);
       if (!matches) {
-        throw new UnauthorizedException('Current password is incorrect');
+        throw new InvalidCurrentPasswordException();
       }
 
       user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_SALT_ROUNDS);

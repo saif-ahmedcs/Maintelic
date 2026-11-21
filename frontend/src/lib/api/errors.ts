@@ -17,6 +17,7 @@ export interface ApiErrorInit {
   requestId?: string;
   path: string;
   validationMessages?: string[];
+  code?: string;
 }
 
 export class ApiError extends Error {
@@ -24,6 +25,7 @@ export class ApiError extends Error {
   readonly requestId?: string;
   readonly path: string;
   readonly validationMessages?: string[];
+  readonly code?: string;
 
   constructor({
     status,
@@ -31,6 +33,7 @@ export class ApiError extends Error {
     requestId,
     path,
     validationMessages,
+    code,
   }: ApiErrorInit) {
     super(message);
     this.name = 'ApiError';
@@ -38,6 +41,7 @@ export class ApiError extends Error {
     this.requestId = requestId;
     this.path = path;
     this.validationMessages = validationMessages;
+    this.code = code;
   }
 
   static async fromResponse(
@@ -55,6 +59,7 @@ export class ApiError extends Error {
       requestId: ApiError.extractString(body, 'requestId'),
       path: ApiError.extractString(body, 'path') ?? path,
       validationMessages: ApiError.extractValidationMessages(body),
+      code: ApiError.extractString(body, 'error'),
     });
   }
 

@@ -49,6 +49,34 @@ describe('ApiError.fromResponse', () => {
       'password must be longer than 8 characters',
     ]);
   });
+
+  it("captures the backend's `error` field as `code`, so two different causes of the same status can be told apart (P1-2)", async () => {
+    const wrongPassword = await ApiError.fromResponse(
+      new Response(
+        JSON.stringify({
+          statusCode: 401,
+          error: 'InvalidCurrentPassword',
+          message: 'Current password is incorrect',
+        }),
+        { status: 401 },
+      ),
+      '/auth/password',
+    );
+    const expiredToken = await ApiError.fromResponse(
+      new Response(
+        JSON.stringify({ statusCode: 401, message: 'Unauthorized' }),
+        {
+          status: 401,
+        },
+      ),
+      '/auth/password',
+    );
+
+    expect(wrongPassword.code).toBe('InvalidCurrentPassword');
+    expect(expiredToken.code).toBeUndefined();
+    expect(wrongPassword.status).toBe(expiredToken.status);
+    expect(wrongPassword.code).not.toBe(expiredToken.code);
+  });
 });
 
 describe('NetworkError', () => {

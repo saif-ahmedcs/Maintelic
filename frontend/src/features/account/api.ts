@@ -5,6 +5,8 @@ export interface ChangePasswordInput {
   newPassword: string;
 }
 
+export const INVALID_CURRENT_PASSWORD_CODE = 'InvalidCurrentPassword';
+
 /* PATCH /auth/password */
 export async function changePassword(
   input: ChangePasswordInput,
