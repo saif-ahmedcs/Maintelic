@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
 import { HttpResponse, http } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../test/msw/server';
 import { getAccessToken, signOut } from '../../lib/auth/session';
 import LoginPage from './LoginPage';
@@ -14,7 +14,12 @@ function mockLogoutOk() {
   );
 }
 
+beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+});
+
 afterEach(async () => {
+  vi.restoreAllMocks();
   mockLogoutOk();
   await signOut();
 });
@@ -55,6 +60,22 @@ describe('LoginPage', () => {
   it('has no axe violations on initial render (17.1)', async () => {
     const { container } = renderLoginPage();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('toggles password visibility without losing the typed value', async () => {
+    const user = userEvent.setup();
+    renderLoginPage();
+
+    const input = screen.getByLabelText('Password');
+    await user.type(input, 'hunter2');
+    expect(input).toHaveAttribute('type', 'password');
+
+    await user.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveValue('hunter2');
+
+    await user.click(screen.getByRole('button', { name: 'Hide password' }));
+    expect(input).toHaveAttribute('type', 'password');
   });
 
   it('shows validation messages and does not submit when fields are empty', async () => {

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { SESSION_EXPIRED_EVENT, refreshSession } from '../api/client';
-import { NetworkError } from '../api/errors';
+import { isTransientFailure } from '../api/errors';
 import {
   getAccessToken as getStoredAccessToken,
   setAccessToken as setStoredAccessToken,
@@ -82,7 +82,7 @@ export async function restoreSession(): Promise<void> {
     const user = await getMe();
     setState({ status: 'authenticated', user });
   } catch (error) {
-    if (error instanceof NetworkError) {
+    if (isTransientFailure(error)) {
       setState({ status: 'unreachable', user: null });
       return;
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, NetworkError } from './errors';
+import { ApiError, NetworkError, isTransientFailure } from './errors';
 
 describe('ApiError.fromResponse', () => {
   it('carries the request ID from the error body', async () => {
@@ -102,5 +102,33 @@ describe('NetworkError', () => {
     expect(error.name).toBe('NetworkError');
     expect(error.path).toBe('/auth/refresh');
     expect(error.cause).toBe(cause);
+  });
+});
+
+describe('isTransientFailure', () => {
+  const apiError = (status: number) =>
+    new ApiError({ status, message: 'x', path: '/auth/refresh' });
+
+  it('treats network errors as transient', () => {
+    expect(isTransientFailure(new NetworkError('/auth/refresh'))).toBe(true);
+  });
+
+  it.each([408, 429, 500, 502, 503, 504])(
+    'treats HTTP %i as transient',
+    (status) => {
+      expect(isTransientFailure(apiError(status))).toBe(true);
+    },
+  );
+
+  it.each([400, 401, 403, 404, 409])(
+    'does not treat HTTP %i as transient',
+    (status) => {
+      expect(isTransientFailure(apiError(status))).toBe(false);
+    },
+  );
+
+  it('does not treat arbitrary errors as transient', () => {
+    expect(isTransientFailure(new Error('boom'))).toBe(false);
+    expect(isTransientFailure(null)).toBe(false);
   });
 });

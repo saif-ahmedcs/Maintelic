@@ -1,4 +1,4 @@
-import { ApiError, NetworkError } from './errors';
+import { ApiError, NetworkError, isTransientFailure } from './errors';
 import { getAccessToken, setAccessToken } from './tokenStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -128,7 +128,7 @@ async function performRequest<T>(
       try {
         await performRefresh();
       } catch (error) {
-        if (error instanceof NetworkError) {
+        if (isTransientFailure(error)) {
           throw error;
         }
         invalidateSession();

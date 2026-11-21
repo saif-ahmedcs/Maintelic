@@ -111,6 +111,16 @@ export class ApiError extends Error {
   }
 }
 
+export function isTransientFailure(error: unknown): boolean {
+  if (error instanceof NetworkError) {
+    return true;
+  }
+  return (
+    error instanceof ApiError &&
+    (error.status === 408 || error.status === 429 || error.status >= 500)
+  );
+}
+
 export interface UserMessage {
   message: string;
   field?: string;

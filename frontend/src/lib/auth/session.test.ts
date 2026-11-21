@@ -111,6 +111,72 @@ describe('restoreSession', () => {
     expect(result.current).toEqual({ status: 'unreachable', user: null });
   });
 
+  it.each([429, 500, 502, 503, 504])(
+    'reports "unreachable", not "unauthenticated", when /auth/refresh returns a transient %i (AUTH-1)',
+    async (status) => {
+      server.use(
+        http.post('/auth/refresh', () =>
+          HttpResponse.json({ message: 'Unavailable' }, { status }),
+        ),
+      );
+
+      const { result } = renderHook(() => useSession());
+
+      await act(async () => {
+        await restoreSession();
+      });
+
+      expect(result.current).toEqual({ status: 'unreachable', user: null });
+    },
+  );
+
+  it('reports "unreachable" when /auth/me returns 503 after a successful refresh (AUTH-1)', async () => {
+    server.use(
+      http.post('/auth/refresh', () =>
+        HttpResponse.json({ ...TOKENS, accessToken: 'restored-token' }),
+      ),
+      http.get('/auth/me', () =>
+        HttpResponse.json({ message: 'Unavailable' }, { status: 503 }),
+      ),
+    );
+
+    const { result } = renderHook(() => useSession());
+
+    await act(async () => {
+      await restoreSession();
+    });
+
+    expect(result.current).toEqual({ status: 'unreachable', user: null });
+  });
+
+  it('recovers to authenticated after a transient 502 on refresh clears (AUTH-1)', async () => {
+    server.use(
+      http.post('/auth/refresh', () =>
+        HttpResponse.json({ message: 'Bad Gateway' }, { status: 502 }),
+      ),
+    );
+
+    const { result } = renderHook(() => useSession());
+
+    await act(async () => {
+      await restoreSession();
+    });
+    expect(result.current).toEqual({ status: 'unreachable', user: null });
+
+    server.use(
+      http.post('/auth/refresh', () =>
+        HttpResponse.json({ ...TOKENS, accessToken: 'restored-token' }),
+      ),
+    );
+    mockMeOk();
+
+    await act(async () => {
+      await restoreSession();
+    });
+
+    expect(result.current).toEqual({ status: 'authenticated', user: ME });
+  });
+
   it('recovers to authenticated on a later retry once the backend is reachable again (P1-1)', async () => {
     server.use(http.post('/auth/refresh', () => HttpResponse.error()));
 

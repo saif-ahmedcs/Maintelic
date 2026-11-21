@@ -2,7 +2,7 @@ import { HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../test/msw/server';
 import { request, SESSION_EXPIRED_EVENT } from './client';
-import { NetworkError } from './errors';
+import { ApiError, NetworkError } from './errors';
 import { getAccessToken, setAccessToken } from './tokenStore';
 
 describe('request', () => {
@@ -91,6 +91,62 @@ describe('request', () => {
     expect(refreshCalls).toBe(1);
     expect(onSessionExpired).not.toHaveBeenCalled();
     expect(getAccessToken()).toBe('stale-access-token');
+
+    window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+  });
+
+  it.each([429, 500, 502, 503, 504])(
+    'does not log out when the refresh attempt returns a transient %i (AUTH-1)',
+    async (status) => {
+      let thingCalls = 0;
+      let refreshCalls = 0;
+      const onSessionExpired = vi.fn();
+      window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+
+      server.use(
+        http.get('/thing', () => {
+          thingCalls += 1;
+          return HttpResponse.json(
+            { message: 'Unauthorized' },
+            { status: 401 },
+          );
+        }),
+        http.post('/auth/refresh', () => {
+          refreshCalls += 1;
+          return HttpResponse.json({ message: 'Unavailable' }, { status });
+        }),
+      );
+
+      const error = await request('/thing').catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status });
+      expect(thingCalls).toBe(1);
+      expect(refreshCalls).toBe(1);
+      expect(onSessionExpired).not.toHaveBeenCalled();
+      expect(getAccessToken()).toBe('stale-access-token');
+
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+    },
+  );
+
+  it('still logs out when the refresh endpoint definitively rejects with 401 (AUTH-1)', async () => {
+    const onSessionExpired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+
+    server.use(
+      http.get('/thing', () =>
+        HttpResponse.json({ message: 'Unauthorized' }, { status: 401 }),
+      ),
+      http.post('/auth/refresh', () =>
+        HttpResponse.json({ message: 'Invalid refresh token' }, { status: 401 }),
+      ),
+    );
+
+    await expect(request('/thing')).rejects.toMatchObject({ status: 401 });
+
+    expect(onSessionExpired).toHaveBeenCalledTimes(1);
+    expect(getAccessToken()).toBeNull();
 
     window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
   });
