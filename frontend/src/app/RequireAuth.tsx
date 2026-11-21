@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import { ErrorState } from '../design/ErrorState';
 import { Skeleton } from '../design/Skeleton';
 import { Surface } from '../design/Surface';
-import { useSession } from '../lib/auth/session';
+import { restoreSession, useSession } from '../lib/auth/session';
 
 export interface RequireAuthProps {
   children: ReactNode;
@@ -17,6 +18,19 @@ export function RequireAuth({ children }: RequireAuthProps) {
       <div className="flex min-h-screen items-center justify-center p-9">
         <Surface className="w-full max-w-sm">
           <Skeleton lines={4} height={16} />
+        </Surface>
+      </div>
+    );
+  }
+
+  if (status === 'unreachable') {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-9">
+        <Surface className="w-full max-w-sm">
+          <ErrorState
+            error="We couldn't reach the server to confirm your session. You haven't been signed out — check your connection and try again."
+            onRetry={() => void restoreSession()}
+          />
         </Surface>
       </div>
     );

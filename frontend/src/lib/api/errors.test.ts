@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError } from './errors';
+import { ApiError, NetworkError } from './errors';
 
 describe('ApiError.fromResponse', () => {
   it('carries the request ID from the error body', async () => {
@@ -48,5 +48,31 @@ describe('ApiError.fromResponse', () => {
       'email must be an email',
       'password must be longer than 8 characters',
     ]);
+  });
+});
+
+describe('NetworkError', () => {
+  it('is not an ApiError, and vice versa', () => {
+    const networkError = new NetworkError('/auth/refresh');
+    const apiError = new ApiError({
+      status: 401,
+      message: 'Unauthorized',
+      path: '/auth/refresh',
+    });
+
+    expect(networkError).toBeInstanceOf(NetworkError);
+    expect(networkError).not.toBeInstanceOf(ApiError);
+    expect(apiError).toBeInstanceOf(ApiError);
+    expect(apiError).not.toBeInstanceOf(NetworkError);
+  });
+
+  it('carries the path and the original thrown value as cause', () => {
+    const cause = new TypeError('Failed to fetch');
+
+    const error = new NetworkError('/auth/refresh', { cause });
+
+    expect(error.name).toBe('NetworkError');
+    expect(error.path).toBe('/auth/refresh');
+    expect(error.cause).toBe(cause);
   });
 });

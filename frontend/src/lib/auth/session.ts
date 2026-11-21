@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { SESSION_EXPIRED_EVENT, refreshSession } from '../api/client';
+import { NetworkError } from '../api/errors';
 import {
   getAccessToken as getStoredAccessToken,
   setAccessToken as setStoredAccessToken,
@@ -11,7 +12,8 @@ import {
   type AuthUser,
 } from '../../features/auth/api';
 
-export type SessionStatus = 'restoring' | 'authenticated' | 'unauthenticated';
+export type SessionStatus =
+  'restoring' | 'authenticated' | 'unauthenticated' | 'unreachable';
 
 export interface SessionState {
   status: SessionStatus;
@@ -79,7 +81,11 @@ export async function restoreSession(): Promise<void> {
     await refreshSession();
     const user = await getMe();
     setState({ status: 'authenticated', user });
-  } catch {
+  } catch (error) {
+    if (error instanceof NetworkError) {
+      setState({ status: 'unreachable', user: null });
+      return;
+    }
     setStoredAccessToken(null);
     setState({ status: 'unauthenticated', user: null });
   }

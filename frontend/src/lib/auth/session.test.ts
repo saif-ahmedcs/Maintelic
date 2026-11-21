@@ -81,6 +81,60 @@ describe('restoreSession', () => {
     expect(result.current).toEqual({ status: 'unauthenticated', user: null });
     expect(getAccessToken()).toBeNull();
   });
+
+  it('reports "unreachable", not "unauthenticated", when the refresh request fails due to a network error (P1-1)', async () => {
+    server.use(http.post('/auth/refresh', () => HttpResponse.error()));
+
+    const { result } = renderHook(() => useSession());
+
+    await act(async () => {
+      await restoreSession();
+    });
+
+    expect(result.current).toEqual({ status: 'unreachable', user: null });
+  });
+
+  it('reports "unreachable" when /auth/me fails due to a network error, even though the refresh itself succeeded (P1-1)', async () => {
+    server.use(
+      http.post('/auth/refresh', () =>
+        HttpResponse.json({ ...TOKENS, accessToken: 'restored-token' }),
+      ),
+      http.get('/auth/me', () => HttpResponse.error()),
+    );
+
+    const { result } = renderHook(() => useSession());
+
+    await act(async () => {
+      await restoreSession();
+    });
+
+    expect(result.current).toEqual({ status: 'unreachable', user: null });
+  });
+
+  it('recovers to authenticated on a later retry once the backend is reachable again (P1-1)', async () => {
+    server.use(http.post('/auth/refresh', () => HttpResponse.error()));
+
+    const { result } = renderHook(() => useSession());
+
+    await act(async () => {
+      await restoreSession();
+    });
+    expect(result.current).toEqual({ status: 'unreachable', user: null });
+
+    server.use(
+      http.post('/auth/refresh', () =>
+        HttpResponse.json({ ...TOKENS, accessToken: 'restored-token' }),
+      ),
+    );
+    mockMeOk();
+
+    await act(async () => {
+      await restoreSession();
+    });
+
+    expect(result.current).toEqual({ status: 'authenticated', user: ME });
+    expect(getAccessToken()).toBe('restored-token');
+  });
 });
 
 describe('signIn', () => {

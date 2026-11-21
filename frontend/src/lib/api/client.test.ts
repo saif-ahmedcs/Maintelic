@@ -2,7 +2,8 @@ import { HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../test/msw/server';
 import { request, SESSION_EXPIRED_EVENT } from './client';
-import { setAccessToken } from './tokenStore';
+import { NetworkError } from './errors';
+import { getAccessToken, setAccessToken } from './tokenStore';
 
 describe('request', () => {
   beforeEach(() => {
@@ -65,6 +66,41 @@ describe('request', () => {
     expect(onSessionExpired).toHaveBeenCalledTimes(1);
 
     window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+  });
+
+  it('does not log out when the refresh attempt fails due to a network error (P1-1)', async () => {
+    let thingCalls = 0;
+    let refreshCalls = 0;
+    const onSessionExpired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+
+    server.use(
+      http.get('/thing', () => {
+        thingCalls += 1;
+        return HttpResponse.json({ message: 'Unauthorized' }, { status: 401 });
+      }),
+      http.post('/auth/refresh', () => {
+        refreshCalls += 1;
+        return HttpResponse.error();
+      }),
+    );
+
+    await expect(request('/thing')).rejects.toBeInstanceOf(NetworkError);
+
+    expect(thingCalls).toBe(1);
+    expect(refreshCalls).toBe(1);
+    expect(onSessionExpired).not.toHaveBeenCalled();
+    expect(getAccessToken()).toBe('stale-access-token');
+
+    window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+  });
+
+  it('rejects with a NetworkError, not a generic throw, when the server is unreachable (P1-1)', async () => {
+    server.use(http.get('/thing', () => HttpResponse.error()));
+
+    const error = await request('/thing').catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(NetworkError);
   });
 
   it('omits undefined query parameters', async () => {

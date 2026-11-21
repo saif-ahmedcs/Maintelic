@@ -1,14 +1,16 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RequireAuth } from './RequireAuth';
-import { useSession } from '../lib/auth/session';
+import { restoreSession, useSession } from '../lib/auth/session';
 
 vi.mock('../lib/auth/session', () => ({
   useSession: vi.fn(),
+  restoreSession: vi.fn(),
 }));
 
 const mockedUseSession = vi.mocked(useSession);
+const mockedRestoreSession = vi.mocked(restoreSession);
 
 afterEach(cleanup);
 
@@ -44,6 +46,20 @@ describe('RequireAuth', () => {
 
     expect(screen.queryByText('secret content')).not.toBeInTheDocument();
     expect(screen.queryByText(/login screen/)).not.toBeInTheDocument();
+  });
+
+  it('shows a retry affordance, not the login redirect, when the backend is unreachable (P1-1)', () => {
+    mockedUseSession.mockReturnValue({ status: 'unreachable', user: null });
+    mockedRestoreSession.mockResolvedValue(undefined);
+
+    renderProtected();
+
+    expect(screen.queryByText('secret content')).not.toBeInTheDocument();
+    expect(screen.queryByText(/login screen/)).not.toBeInTheDocument();
+    expect(screen.getByText(/couldn't reach the server/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(mockedRestoreSession).toHaveBeenCalledTimes(1);
   });
 
   it('redirects to /login and remembers the intended path when signed out', () => {

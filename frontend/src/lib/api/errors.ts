@@ -1,3 +1,16 @@
+export class NetworkError extends Error {
+  readonly path: string;
+
+  constructor(path: string, options?: { cause?: unknown }) {
+    super('Unable to reach the server. Check your connection and try again.');
+    this.name = 'NetworkError';
+    this.path = path;
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
 export interface ApiErrorInit {
   status: number;
   message: string;

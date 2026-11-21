@@ -1,4 +1,4 @@
-import { ApiError } from './errors';
+import { ApiError, NetworkError } from './errors';
 import { getAccessToken, setAccessToken } from './tokenStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -44,13 +44,18 @@ async function doFetch(
     ...options.headers,
   };
 
-  return fetch(buildUrl(path, options.query), {
-    method: options.method ?? 'GET',
-    headers,
-    credentials: 'include',
-    signal: options.signal,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  try {
+    return await fetch(buildUrl(path, options.query), {
+      method: options.method ?? 'GET',
+      headers,
+      credentials: 'include',
+      signal: options.signal,
+      body:
+        options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (cause) {
+    throw new NetworkError(path, { cause });
+  }
 }
 
 function invalidateSession(): void {
@@ -74,11 +79,16 @@ export function refreshSession(): Promise<void> {
 }
 
 async function refreshAccessToken(): Promise<void> {
-  const response = await fetch(buildUrl('/auth/refresh'), {
-    method: 'POST',
-    credentials: 'include',
-    headers: { Accept: 'application/json' },
-  });
+  let response: Response;
+  try {
+    response = await fetch(buildUrl('/auth/refresh'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+  } catch (cause) {
+    throw new NetworkError('/auth/refresh', { cause });
+  }
 
   if (!response.ok) {
     throw await ApiError.fromResponse(response, '/auth/refresh');
@@ -117,7 +127,10 @@ async function performRequest<T>(
     if (phase === 'eligible') {
       try {
         await performRefresh();
-      } catch {
+      } catch (error) {
+        if (error instanceof NetworkError) {
+          throw error;
+        }
         invalidateSession();
         throw await ApiError.fromResponse(response, path);
       }
