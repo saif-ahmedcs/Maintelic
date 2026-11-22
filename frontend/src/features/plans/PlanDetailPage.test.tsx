@@ -504,6 +504,150 @@ describe('PlanDetailPage', () => {
     });
   });
 
+  describe('Create work order from the plan', () => {
+    function renderWithWorkOrderRoute() {
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      });
+      return render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter basename="/app" initialEntries={['/app/plans/plan-1']}>
+            <Routes>
+              <Route path="/plans/:id" element={<PlanDetailPage />} />
+              <Route
+                path="/work-orders/:id"
+                element={<p>Work order detail stub</p>}
+              />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    }
+
+    it.each(['TECHNICIAN', 'SUPERVISOR', 'ADMIN'])(
+      'offers Create work order to a %s on an active plan',
+      async (role) => {
+        mockSession([role]);
+        await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+        mockPlanEndpoints(makePlan({}), makeAsset({}));
+
+        renderPage();
+
+        await screen.findByRole('heading', { name: 'Quarterly lubrication' });
+        expect(
+          await screen.findByRole('button', { name: 'Create work order' }),
+        ).toBeInTheDocument();
+      },
+    );
+
+    it('hides Create work order for a VIEWER', async () => {
+      mockSession(['VIEWER']);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      mockPlanEndpoints(makePlan({}), makeAsset({}));
+
+      renderPage();
+
+      await screen.findByRole('link', { name: 'PUMP-01' });
+      expect(
+        screen.queryByRole('button', { name: 'Create work order' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides Create work order for an inactive plan', async () => {
+      mockSession(['SUPERVISOR']);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      mockPlanEndpoints(makePlan({ active: false }), makeAsset({}));
+
+      renderPage();
+
+      await screen.findByRole('link', { name: 'PUMP-01' });
+      expect(
+        screen.queryByRole('button', { name: 'Create work order' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides Create work order when the asset is decommissioned', async () => {
+      mockSession(['SUPERVISOR']);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      mockPlanEndpoints(makePlan({}), makeAsset({ status: 'DECOMMISSIONED' }));
+
+      renderPage();
+
+      await screen.findByRole('link', { name: 'PUMP-01' });
+      expect(
+        screen.queryByRole('button', { name: 'Create work order' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('creates a plan-linked work order and opens it', async () => {
+      const user = userEvent.setup();
+      mockSession(['SUPERVISOR']);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      mockPlanEndpoints(makePlan({}), makeAsset({}));
+      let body: Record<string, unknown> | null = null;
+      server.use(
+        http.post('/work-orders', async ({ request }) => {
+          body = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            makeWorkOrder({
+              id: 'wo-new',
+              description: String(body.description),
+            }),
+            { status: 201 },
+          );
+        }),
+      );
+
+      renderWithWorkOrderRoute();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Create work order' }),
+      );
+
+      await screen.findByText('Work order detail stub');
+      expect(body).toEqual({
+        assetId: 'asset-1',
+        maintenancePlanId: 'plan-1',
+        priority: 'MEDIUM',
+        description: 'Planned maintenance: Quarterly lubrication',
+      });
+    });
+
+    it('shows the server message and stays on the plan when creation is rejected', async () => {
+      const user = userEvent.setup();
+      mockSession(['SUPERVISOR']);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      mockPlanEndpoints(makePlan({}), makeAsset({}));
+      server.use(
+        http.post('/work-orders', () =>
+          HttpResponse.json(
+            {
+              message:
+                'Asset asset-1 is decommissioned; work orders cannot be created for it',
+            },
+            { status: 409 },
+          ),
+        ),
+      );
+
+      renderWithWorkOrderRoute();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Create work order' }),
+      );
+
+      expect(
+        await screen.findByText(/is decommissioned; work orders cannot/),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText('Work order detail stub'),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   describe('Errors (24.5 / Phase 17)', () => {
     it('shows "Maintenance plan not found" for a 404 and offers a way back', async () => {
       mockSession(['VIEWER']);

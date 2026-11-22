@@ -7,6 +7,14 @@ import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module';
 import { seedUser } from './utils/register-and-login';
 
+async function ageRotation(dataSource: DataSource, refreshToken: string) {
+  const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+  await dataSource.query(
+    `UPDATE refresh_tokens SET revoked_at = now() - interval '1 minute' WHERE token_hash = $1`,
+    [tokenHash],
+  );
+}
+
 describe('Auth (e2e)', () => {
   let app: INestApplication<App>;
   let dataSource: DataSource;
@@ -76,7 +84,12 @@ describe('Auth (e2e)', () => {
       .set('Authorization', `Bearer ${secondAccessToken}`)
       .expect(200);
 
-    // The old (rotated-out) refresh token must now be rejected
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: firstRefreshToken })
+      .expect(200);
+
+    await ageRotation(dataSource, firstRefreshToken);
     await request(app.getHttpServer())
       .post('/auth/refresh')
       .send({ refreshToken: firstRefreshToken })

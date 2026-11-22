@@ -1,17 +1,31 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
+import { AuditService } from '../audit/audit.service';
 import { SparePart } from '../inventory/entities/spare-part.entity';
 import { MaintenancePlan } from '../maintenance-plans/entities/maintenance-plan.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { MaintenancePlansService } from '../maintenance-plans/maintenance-plans.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { NotificationsService } from '../notifications/notifications.service';
-import { WorkOrder } from '../work-orders/entities/work-order.entity';
+import {
+  WorkOrder,
+  WorkOrderPriority,
+  WorkOrderSource,
+  WorkOrderStatus,
+} from '../work-orders/entities/work-order.entity';
 import { ACTIVE_WORK_ORDER_STATUSES } from './condition-monitoring.service';
 import { AiInsightsService } from '../ai-insights/ai-insights.service';
-import { Asset } from '../assets/entities/asset.entity';
+import { Asset, AssetStatus } from '../assets/entities/asset.entity';
+
+const PLANNED_SOURCE = 'auto:scheduled-maintenance';
 
 @Injectable()
 export class ScheduledChecksService {
@@ -25,11 +39,13 @@ export class ScheduledChecksService {
     @InjectRepository(WorkOrder)
     private readonly workOrderRepo: Repository<WorkOrder>,
     private readonly aiInsightsService: AiInsightsService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
   async checkOverdueMaintenance(): Promise<void> {
     const duePlans = await this.maintenancePlansService.findAllDue();
+    let generated = 0;
 
     for (const plan of duePlans) {
       const hasOpenWorkOrder = await this.workOrderRepo.exists({
@@ -48,80 +64,152 @@ export class ScheduledChecksService {
           'MaintenancePlan',
           plan.id,
         );
-      if (alreadyNotified) {
-        continue;
+
+      let aiNote: string | null = null;
+      if (!alreadyNotified) {
+        const asset = await this.dataSource.manager.findOne(Asset, {
+          where: { id: plan.assetId },
+          relations: { assetType: true },
+        });
+
+        aiNote = await this.aiInsightsService.generate({
+          kind: 'OVERDUE_MAINTENANCE',
+          asset: asset
+            ? {
+                tag: asset.tag,
+                typeName: asset.assetType?.name ?? null,
+                criticality: asset.criticality,
+              }
+            : null,
+          planName: plan.name,
+          intervalDays: plan.intervalDays,
+          dueAt: plan.nextDueAt,
+        });
       }
 
-      const asset = await this.dataSource.manager.findOne(Asset, {
-        where: { id: plan.assetId },
-        relations: { assetType: true },
-      });
+      const createdWorkOrder = await this.dataSource.transaction(
+        async (manager) => {
+          const current = await manager
+            .createQueryBuilder(MaintenancePlan, 'plan')
+            .setLock('pessimistic_write')
+            .where('plan.id = :id', { id: plan.id })
+            .getOne();
+          const stillOverdue =
+            !!current &&
+            current.active &&
+            !!current.nextDueAt &&
+            current.nextDueAt <= new Date();
+          if (!current || !current.nextDueAt || !stillOverdue) {
+            return false;
+          }
 
-      const aiNote = await this.aiInsightsService.generate({
-        kind: 'OVERDUE_MAINTENANCE',
-        asset: asset
-          ? {
-              tag: asset.tag,
-              typeName: asset.assetType?.name ?? null,
-              criticality: asset.criticality,
-            }
-          : null,
-        planName: plan.name,
-        intervalDays: plan.intervalDays,
-        dueAt: plan.nextDueAt,
-      });
+          const openWorkOrderNow = await manager.exists(WorkOrder, {
+            where: {
+              maintenancePlanId: plan.id,
+              status: In(ACTIVE_WORK_ORDER_STATUSES),
+            },
+          });
+          if (openWorkOrderNow) {
+            return false;
+          }
 
-      await this.dataSource.transaction(async (manager) => {
-        const current = await manager
-          .createQueryBuilder(MaintenancePlan, 'plan')
-          .setLock('pessimistic_write')
-          .where('plan.id = :id', { id: plan.id })
-          .getOne();
-        const stillOverdue =
-          !!current &&
-          current.active &&
-          !!current.nextDueAt &&
-          current.nextDueAt <= new Date();
-        if (!current || !stillOverdue) {
-          return;
-        }
-
-        const openWorkOrderNow = await manager.exists(WorkOrder, {
-          where: {
-            maintenancePlanId: plan.id,
-            status: In(ACTIVE_WORK_ORDER_STATUSES),
-          },
-        });
-        if (openWorkOrderNow) {
-          return;
-        }
-
-        const notifiedNow =
-          await this.notificationsService.hasActiveNotification(
-            NotificationType.OVERDUE_MAINTENANCE,
-            'MaintenancePlan',
-            plan.id,
+          const workOrderCreated = await this.generatePlannedWorkOrder(
             manager,
+            current,
+            current.nextDueAt,
           );
-        if (notifiedNow) {
-          return;
-        }
 
-        await this.notificationsService.record(manager, {
-          type: NotificationType.OVERDUE_MAINTENANCE,
-          relatedEntityType: 'MaintenancePlan',
-          relatedEntityId: plan.id,
-          message: `Maintenance plan "${current.name}" is overdue (was due ${current.nextDueAt?.toISOString()}).`,
-          aiNote,
-        });
-      });
+          const notifiedNow =
+            await this.notificationsService.hasActiveNotification(
+              NotificationType.OVERDUE_MAINTENANCE,
+              'MaintenancePlan',
+              plan.id,
+              manager,
+            );
+          if (!notifiedNow) {
+            await this.notificationsService.record(manager, {
+              type: NotificationType.OVERDUE_MAINTENANCE,
+              relatedEntityType: 'MaintenancePlan',
+              relatedEntityId: plan.id,
+              message: `Maintenance plan "${current.name}" is overdue (was due ${current.nextDueAt.toISOString()}).${
+                workOrderCreated
+                  ? ' A planned work order was opened automatically.'
+                  : ''
+              }`,
+              aiNote,
+            });
+          }
+
+          return workOrderCreated;
+        },
+      );
+
+      if (createdWorkOrder) {
+        generated += 1;
+      }
     }
 
     if (duePlans.length > 0) {
       this.logger.log(
-        `Overdue maintenance check: ${duePlans.length} plan(s) due, notifications reconciled.`,
+        `Overdue maintenance check: ${duePlans.length} plan(s) due, ${generated} planned work order(s) opened, notifications reconciled.`,
       );
     }
+  }
+
+  private async generatePlannedWorkOrder(
+    manager: EntityManager,
+    plan: MaintenancePlan,
+    dueAt: Date,
+  ): Promise<boolean> {
+    const asset = await manager.findOne(Asset, {
+      where: { id: plan.assetId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!asset || asset.status === AssetStatus.DECOMMISSIONED) {
+      return false;
+    }
+
+    const alreadyRaisedThisCycle = await manager.exists(WorkOrder, {
+      where: {
+        maintenancePlanId: plan.id,
+        openedAt: MoreThanOrEqual(dueAt),
+      },
+    });
+    if (alreadyRaisedThisCycle) {
+      return false;
+    }
+
+    const workOrder = await manager.save(
+      manager.create(WorkOrder, {
+        assetId: plan.assetId,
+        maintenancePlanId: plan.id,
+        status: WorkOrderStatus.OPEN,
+        source: WorkOrderSource.PLANNED,
+        priority: WorkOrderPriority.MEDIUM,
+        description: `Planned maintenance: ${plan.name} (due ${dueAt.toISOString()}).`,
+      }),
+    );
+
+    await this.auditService.record(manager, {
+      actorUserId: null,
+      entityType: 'WorkOrder',
+      entityId: workOrder.id,
+      action: 'AUTO_CREATE',
+      before: null,
+      after: {
+        assetId: workOrder.assetId,
+        maintenancePlanId: workOrder.maintenancePlanId,
+        status: workOrder.status,
+        source: workOrder.source,
+        priority: workOrder.priority,
+      },
+      source: PLANNED_SOURCE,
+    });
+
+    this.logger.log(
+      `Scheduled maintenance: plan "${plan.name}" (${plan.id}) is due, work order ${workOrder.id} opened`,
+    );
+    return true;
   }
 
   @Cron(CronExpression.EVERY_HOUR)

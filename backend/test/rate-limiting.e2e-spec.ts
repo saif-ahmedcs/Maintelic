@@ -11,6 +11,23 @@ const PASSWORD = 'CorrectHorseBattery9!';
 describe('Rate limiting (e2e)', () => {
   let app: INestApplication<App>;
 
+  const pinned = { AUTH_LOGIN_RATE_LIMIT: '5' };
+  const saved: Record<string, string | undefined> = {};
+
+  beforeAll(() => {
+    for (const [key, value] of Object.entries(pinned)) {
+      saved[key] = process.env[key];
+      process.env[key] = value;
+    }
+  });
+
+  afterAll(() => {
+    for (const key of Object.keys(pinned)) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  });
+
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],

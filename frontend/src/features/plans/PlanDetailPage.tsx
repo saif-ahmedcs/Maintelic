@@ -5,7 +5,7 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../design/Button';
 import { EmptyState } from '../../design/EmptyState';
 import { ErrorState } from '../../design/ErrorState';
@@ -21,7 +21,11 @@ import { ApiError, toUserMessage } from '../../lib/api/errors';
 import { can } from '../../lib/auth/roles';
 import { useSession } from '../../lib/auth/session';
 import { formatDateTime } from '../../lib/format';
-import { listWorkOrders, type WorkOrder } from '../work-orders/api';
+import {
+  createWorkOrder,
+  listWorkOrders,
+  type WorkOrder,
+} from '../work-orders/api';
 import { EditPlanDialog } from './EditPlanDialog';
 import { getMaintenancePlan, type MaintenanceTask } from './api';
 
@@ -48,11 +52,13 @@ interface NumberedTask extends MaintenanceTask {
 export default function PlanDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useSession();
   const roles = user?.roles ?? [];
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [editOpen, setEditOpen] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const page = Number(searchParams.get('page')) || 1;
 
@@ -81,6 +87,22 @@ export default function PlanDetailPage() {
         limit: WORK_ORDERS_PAGE_SIZE,
       }),
     enabled: planQuery.isSuccess,
+  });
+
+  const createWorkOrderMutation = useMutation({
+    mutationFn: createWorkOrder,
+    onSuccess: (workOrder) => {
+      setCreateError(null);
+      void queryClient.invalidateQueries({ queryKey: ['work-orders', 'list'] });
+      navigate(`/work-orders/${workOrder.id}`, { state: { created: true } });
+    },
+    onError: (error) => {
+      setCreateError(
+        error instanceof ApiError
+          ? toUserMessage(error).message
+          : 'Could not create the work order. Try again.',
+      );
+    },
   });
 
   function updatePage(nextPage: number) {
@@ -129,6 +151,13 @@ export default function PlanDetailPage() {
 
   const plan = planQuery.data;
   const canManage = can.manageMaintenancePlans(roles);
+  // Mirrors the backend: work orders cannot be raised for a decommissioned
+  // asset, and an inactive plan is not being scheduled.
+  const canCreateWorkOrder =
+    can.createWorkOrder(roles) &&
+    plan.active &&
+    assetQuery.data !== undefined &&
+    assetQuery.data.status !== 'DECOMMISSIONED';
   const overdue =
     plan.active && plan.nextDueAt !== null
       ? new Date(plan.nextDueAt).getTime() < Date.now()
@@ -240,10 +269,39 @@ export default function PlanDetailPage() {
           />
         </div>
 
-        {canManage && (
+        {(canManage || canCreateWorkOrder) && (
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => setEditOpen(true)}>Edit</Button>
+            {canCreateWorkOrder && (
+              <Button
+                loading={createWorkOrderMutation.isPending}
+                onClick={() => {
+                  setCreateError(null);
+                  createWorkOrderMutation.mutate({
+                    assetId: plan.assetId,
+                    maintenancePlanId: plan.id,
+                    priority: 'MEDIUM',
+                    description: `Planned maintenance: ${plan.name}`,
+                  });
+                }}
+              >
+                Create work order
+              </Button>
+            )}
+            {canManage && (
+              <Button
+                variant={canCreateWorkOrder ? 'ghost' : 'primary'}
+                onClick={() => setEditOpen(true)}
+              >
+                Edit
+              </Button>
+            )}
           </div>
+        )}
+
+        {createError && (
+          <p role="alert" className="font-ui text-ui text-accent-lavender">
+            {createError}
+          </p>
         )}
       </Surface>
 

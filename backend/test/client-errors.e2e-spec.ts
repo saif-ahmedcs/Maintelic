@@ -10,6 +10,16 @@ import { registerAndLogin } from './utils/register-and-login';
 describe('Client errors (e2e)', () => {
   let app: INestApplication<App>;
 
+  let savedLimit: string | undefined;
+  beforeAll(() => {
+    savedLimit = process.env.CLIENT_ERROR_RATE_LIMIT;
+    process.env.CLIENT_ERROR_RATE_LIMIT = '20';
+  });
+  afterAll(() => {
+    if (savedLimit === undefined) delete process.env.CLIENT_ERROR_RATE_LIMIT;
+    else process.env.CLIENT_ERROR_RATE_LIMIT = savedLimit;
+  });
+
   const validReport = {
     message: 'TypeError: Cannot read properties of undefined',
     stack: 'TypeError: ...\n  at Component (App.tsx:42:7)',

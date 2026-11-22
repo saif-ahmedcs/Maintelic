@@ -20,7 +20,7 @@ flowchart TB
         TELCTRL["TelemetryController - @EventPattern('factory/+/asset/+/telemetry')"]
         SERVICES["Services: TypeORM repos, dataSource.transaction(...), pessimistic row locks"]
         PROCESSOR["ConditionMonitoringProcessor (BullMQ worker)"]
-        CRON["ScheduledChecksService (@Cron, hourly: overdue maintenance, low stock)"]
+        CRON["ScheduledChecksService (@Cron, hourly: due plans -> PLANNED work order + overdue notification, low stock)"]
         AI["AiInsightsService + GroqDiagnosticProvider (hard timeout, null fallback, never throws)"]
     end
 
@@ -53,3 +53,5 @@ flowchart TB
 **Background worker / condition-monitoring path:** `ConditionMonitoringProcessor` consumes the queued job off the hot path, evaluates the deterministic rule, and — only if it trips — calls Groq _before_ opening the database transaction. If Groq times out, errors, or is disabled, `AI` returns `null` and the transaction proceeds exactly as it would have without it. The duplicate-prevention check inside this path is backed by the partial unique index on `work_orders`, so even a worker race can't create two open AUTO work orders for the same asset.
 
 **Scheduled path:** `ScheduledChecksService` runs on `@nestjs/schedule`'s cron, independent of the MQTT/queue path, reusing the same `AI` service for its own notifications.
+
+**Planned maintenance:** each hour, every active plan whose `nextDueAt` has passed gets one `PLANNED` work order (priority `MEDIUM`, audited as `AUTO_CREATE` with source `auto:scheduled-maintenance`) plus an `OVERDUE_MAINTENANCE` notification. Generation is skipped when the plan already has an active work order, when the asset is `DECOMMISSIONED`, or when a work order was already raised during the current due cycle (e.g. it was cancelled; a supervisor can raise another from the plan page, or move `nextDueAt` to start a new cycle). Completing the work order advances `lastCompletedAt`/`nextDueAt` and resolves the notification. Supervisors and technicians can also raise a plan-linked work order on demand from the plan detail page.

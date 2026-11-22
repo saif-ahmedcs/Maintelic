@@ -405,6 +405,57 @@ export interface paths {
     patch: operations['AssetsController_updateStatus'];
     trace?: never;
   };
+  '/notifications': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List notifications (paginated, filterable by type/status/related entity) */
+    get: operations['NotificationsController_findAll'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/notifications/{id}/acknowledge': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Mark a notification as acknowledged (seen, not yet resolved) */
+    patch: operations['NotificationsController_acknowledge'];
+    trace?: never;
+  };
+  '/notifications/{id}/resolve': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Mark a notification as resolved */
+    patch: operations['NotificationsController_resolve'];
+    trace?: never;
+  };
   '/maintenance-plans': {
     parameters: {
       query?: never;
@@ -750,57 +801,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/notifications': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List notifications (paginated, filterable by type/status/related entity) */
-    get: operations['NotificationsController_findAll'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/notifications/{id}/acknowledge': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Mark a notification as acknowledged (seen, not yet resolved) */
-    patch: operations['NotificationsController_acknowledge'];
-    trace?: never;
-  };
-  '/notifications/{id}/resolve': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Mark a notification as resolved */
-    patch: operations['NotificationsController_resolve'];
-    trace?: never;
-  };
   '/client-errors': {
     parameters: {
       query?: never;
@@ -982,6 +982,22 @@ export interface components {
       status:
         'OPERATIONAL' | 'UNDER_MAINTENANCE' | 'CRITICAL' | 'DECOMMISSIONED';
     };
+    NotificationResponseDto: {
+      id: string;
+      /** @enum {string} */
+      type: 'CRITICAL_ASSET' | 'OVERDUE_MAINTENANCE' | 'LOW_STOCK';
+      relatedEntityType: string;
+      relatedEntityId: string;
+      message: string;
+      /** @description AI-generated diagnostic note, present only when enabled and successful */
+      aiNote: Record<string, never> | null;
+      /** @enum {string} */
+      status: 'UNREAD' | 'ACKNOWLEDGED' | 'RESOLVED';
+      /** Format: date-time */
+      createdAt: string;
+      resolvedAt: Record<string, never> | null;
+      resolvedByUserId: Record<string, never> | null;
+    };
     MaintenanceTaskResponseDto: {
       id: string;
       description: string;
@@ -1158,22 +1174,6 @@ export interface components {
       assetCount: number;
       /** @description Echoes the `since` query parameter */
       since: string;
-    };
-    NotificationResponseDto: {
-      id: string;
-      /** @enum {string} */
-      type: 'CRITICAL_ASSET' | 'OVERDUE_MAINTENANCE' | 'LOW_STOCK';
-      relatedEntityType: string;
-      relatedEntityId: string;
-      message: string;
-      /** @description AI-generated diagnostic note, present only when enabled and successful */
-      aiNote: Record<string, never> | null;
-      /** @enum {string} */
-      status: 'UNREAD' | 'ACKNOWLEDGED' | 'RESOLVED';
-      /** Format: date-time */
-      createdAt: string;
-      resolvedAt: Record<string, never> | null;
-      resolvedByUserId: Record<string, never> | null;
     };
     CreateClientErrorDto: {
       /** @description Human-readable error message as the client saw it */
@@ -2126,6 +2126,78 @@ export interface operations {
       };
     };
   };
+  NotificationsController_findAll: {
+    parameters: {
+      query?: {
+        page?: number;
+        limit?: number;
+        /** @description Column to sort by (resource-specific) */
+        sortBy?: string;
+        sortDir?: 'ASC' | 'DESC' | 'asc' | 'desc';
+        type?: 'CRITICAL_ASSET' | 'OVERDUE_MAINTENANCE' | 'LOW_STOCK';
+        status?: 'UNREAD' | 'ACKNOWLEDGED' | 'RESOLVED';
+        /** @description e.g. the asset or spare part this notification refers to */
+        relatedEntityId?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paginated list of notifications */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationResponseDto'][];
+        };
+      };
+    };
+  };
+  NotificationsController_acknowledge: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationResponseDto'];
+        };
+      };
+    };
+  };
+  NotificationsController_resolve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationResponseDto'];
+        };
+      };
+    };
+  };
   MaintenancePlansController_findAll: {
     parameters: {
       query?: {
@@ -2792,78 +2864,6 @@ export interface operations {
           'application/json': {
             [key: string]: components['schemas']['TelemetryReadingResponseDto'];
           };
-        };
-      };
-    };
-  };
-  NotificationsController_findAll: {
-    parameters: {
-      query?: {
-        page?: number;
-        limit?: number;
-        /** @description Column to sort by (resource-specific) */
-        sortBy?: string;
-        sortDir?: 'ASC' | 'DESC' | 'asc' | 'desc';
-        type?: 'CRITICAL_ASSET' | 'OVERDUE_MAINTENANCE' | 'LOW_STOCK';
-        status?: 'UNREAD' | 'ACKNOWLEDGED' | 'RESOLVED';
-        /** @description e.g. the asset or spare part this notification refers to */
-        relatedEntityId?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Paginated list of notifications */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['NotificationResponseDto'][];
-        };
-      };
-    };
-  };
-  NotificationsController_acknowledge: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['NotificationResponseDto'];
-        };
-      };
-    };
-  };
-  NotificationsController_resolve: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['NotificationResponseDto'];
         };
       };
     };

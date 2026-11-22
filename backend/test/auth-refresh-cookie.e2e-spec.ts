@@ -3,12 +3,21 @@ import { Test, TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module';
 import { seedUser } from './utils/register-and-login';
 
 const PASSWORD = 'CorrectHorseBattery9!';
 const COOKIE = 'refresh_token';
+
+async function ageRotation(dataSource: DataSource, refreshToken: string) {
+  const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+  await dataSource.query(
+    `UPDATE refresh_tokens SET revoked_at = now() - interval '1 minute' WHERE token_hash = $1`,
+    [tokenHash],
+  );
+}
 
 describe('Auth refresh-token cookie (e2e)', () => {
   let app: INestApplication<App>;
@@ -44,8 +53,7 @@ describe('Auth refresh-token cookie (e2e)', () => {
       .expect(200);
 
   const refreshCookieHeader = (res: request.Response): string => {
-    const setCookies = (res.headers['set-cookie'] ??
-      []) as unknown as string[];
+    const setCookies = (res.headers['set-cookie'] ?? []) as unknown as string[];
     const found = setCookies.find((c) => c.startsWith(`${COOKIE}=`));
     if (!found) {
       throw new Error(`Response did not set the ${COOKIE} cookie`);
@@ -83,6 +91,8 @@ describe('Auth refresh-token cookie (e2e)', () => {
     expect(cookieValue(rotated)).toBe(refreshRes.body.refreshToken);
     expect(rotated).toMatch(/;\s*HttpOnly/i);
 
+    // Once the grace window (AUTH-1) has passed, the old token is rejected.
+    await ageRotation(app.get(DataSource), first);
     await request(app.getHttpServer())
       .post('/auth/refresh')
       .set('Cookie', `${COOKIE}=${first}`)

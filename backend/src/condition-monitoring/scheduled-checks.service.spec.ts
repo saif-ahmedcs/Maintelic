@@ -1,9 +1,16 @@
-import { In } from 'typeorm';
+import { In, MoreThanOrEqual } from 'typeorm';
+import { Asset, AssetStatus } from '../assets/entities/asset.entity';
 import { SparePart } from '../inventory/entities/spare-part.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { MaintenancePlan } from '../maintenance-plans/entities/maintenance-plan.entity';
 import { MaintenancePlansService } from '../maintenance-plans/maintenance-plans.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
+import {
+  WorkOrder,
+  WorkOrderPriority,
+  WorkOrderSource,
+  WorkOrderStatus,
+} from '../work-orders/entities/work-order.entity';
 import { ACTIVE_WORK_ORDER_STATUSES } from './condition-monitoring.service';
 import { ScheduledChecksService } from './scheduled-checks.service';
 import { Logger } from '@nestjs/common';
@@ -17,8 +24,15 @@ describe('ScheduledChecksService', () => {
     record: jest.Mock;
   };
   let dataSource: { manager: { findOne: jest.Mock }; transaction: jest.Mock };
-  let txManager: { createQueryBuilder: jest.Mock; exists: jest.Mock };
-  let txState: { plan: any; part: any };
+  let txManager: {
+    createQueryBuilder: jest.Mock;
+    exists: jest.Mock;
+    findOne: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
+  let txState: { plan: any; part: any; asset: any };
+  let auditService: { record: jest.Mock };
   let workOrderRepo: { exists: jest.Mock };
   let aiInsightsService: { generate: jest.Mock };
 
@@ -49,7 +63,9 @@ describe('ScheduledChecksService', () => {
     txState = {
       plan: { ...plan, active: true },
       part: { ...part },
+      asset: { id: 'asset-1', status: AssetStatus.OPERATIONAL },
     };
+    auditService = { record: jest.fn(async () => ({})) };
     txManager = {
       createQueryBuilder: jest.fn((entity: unknown) => ({
         setLock: jest.fn().mockReturnThis(),
@@ -59,6 +75,9 @@ describe('ScheduledChecksService', () => {
         ),
       })),
       exists: jest.fn(async () => false),
+      findOne: jest.fn(async () => txState.asset),
+      create: jest.fn((_entity: unknown, plain: any) => ({ ...plain })),
+      save: jest.fn(async (entity: any) => ({ id: 'wo-new', ...entity })),
     };
     dataSource = {
       manager: { findOne: jest.fn().mockResolvedValue(null) },
@@ -74,6 +93,7 @@ describe('ScheduledChecksService', () => {
       dataSource as any,
       workOrderRepo as any,
       aiInsightsService as any,
+      auditService as any,
     );
   });
 
@@ -199,6 +219,117 @@ describe('ScheduledChecksService', () => {
       await service.checkOverdueMaintenance();
 
       expect(aiInsightsService.generate).not.toHaveBeenCalled();
+    });
+
+    describe('planned work order generation', () => {
+      it('opens a PLANNED work order for the due plan, audits it as a system action, and notes it in the notification', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(false);
+
+        await service.checkOverdueMaintenance();
+
+        expect(txManager.findOne).toHaveBeenCalledWith(Asset, {
+          where: { id: plan.assetId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        expect(txManager.exists).toHaveBeenCalledWith(WorkOrder, {
+          where: {
+            maintenancePlanId: plan.id,
+            openedAt: MoreThanOrEqual(plan.nextDueAt),
+          },
+        });
+        expect(txManager.create).toHaveBeenCalledWith(
+          WorkOrder,
+          expect.objectContaining({
+            assetId: plan.assetId,
+            maintenancePlanId: plan.id,
+            status: WorkOrderStatus.OPEN,
+            source: WorkOrderSource.PLANNED,
+            priority: WorkOrderPriority.MEDIUM,
+            description: expect.stringContaining(plan.name),
+          }),
+        );
+        expect(auditService.record).toHaveBeenCalledWith(
+          txManager,
+          expect.objectContaining({
+            actorUserId: null,
+            entityType: 'WorkOrder',
+            entityId: 'wo-new',
+            action: 'AUTO_CREATE',
+            source: 'auto:scheduled-maintenance',
+          }),
+        );
+        expect(notificationsService.record).toHaveBeenCalledWith(
+          txManager,
+          expect.objectContaining({
+            message: expect.stringContaining('work order was opened'),
+          }),
+        );
+      });
+
+      it('still opens the work order when an overdue notification already exists, without a second notification or an AI call', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(true);
+
+        await service.checkOverdueMaintenance();
+
+        expect(txManager.save).toHaveBeenCalledWith(
+          expect.objectContaining({ source: WorkOrderSource.PLANNED }),
+        );
+        expect(notificationsService.record).not.toHaveBeenCalled();
+        expect(aiInsightsService.generate).not.toHaveBeenCalled();
+      });
+
+      it('does not generate a work order for a DECOMMISSIONED asset', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(false);
+        txState.asset = { id: 'asset-1', status: AssetStatus.DECOMMISSIONED };
+
+        await service.checkOverdueMaintenance();
+
+        expect(txManager.create).not.toHaveBeenCalled();
+        expect(auditService.record).not.toHaveBeenCalled();
+      });
+
+      it('does not regenerate when a work order was already raised for this due cycle (e.g. it was cancelled)', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(true);
+        txManager.exists
+          .mockResolvedValueOnce(false) // no active work order
+          .mockResolvedValueOnce(true); // one already opened this cycle
+
+        await service.checkOverdueMaintenance();
+
+        expect(txManager.create).not.toHaveBeenCalled();
+        expect(auditService.record).not.toHaveBeenCalled();
+      });
+
+      it('writes nothing when a work order became active between the snapshot and the transaction', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(false);
+        txManager.exists.mockResolvedValueOnce(true);
+
+        await service.checkOverdueMaintenance();
+
+        expect(txManager.create).not.toHaveBeenCalled();
+        expect(notificationsService.record).not.toHaveBeenCalled();
+      });
+
+      it('does not generate when the plan was deactivated after the snapshot', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(false);
+        txState.plan = { ...plan, active: false };
+
+        await service.checkOverdueMaintenance();
+
+        expect(txManager.create).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -333,7 +464,15 @@ describe('ScheduledChecksService races and recurrence', () => {
   const actor = { id: 'user-1', email: 'a@b.c', roles: [] } as any;
   const DAY = 24 * 60 * 60 * 1000;
 
-  let state: { part: any; plan: any };
+  type FakeWorkOrder = {
+    id: string;
+    planId: string;
+    status: string;
+    openedAt: Date;
+  };
+
+  let state: { part: any; plan: any; asset: any };
+  let workOrders: FakeWorkOrder[];
   let notifications: FakeNotification[];
   let lock: Promise<unknown>;
   let manager: any;
@@ -366,7 +505,9 @@ describe('ScheduledChecksService races and recurrence', () => {
         active: true,
         nextDueAt: new Date(Date.now() - DAY),
       },
+      asset: { id: 'asset-1', status: 'OPERATIONAL' },
     };
+    workOrders = [];
     notifications = [];
     lock = Promise.resolve();
 
@@ -379,11 +520,33 @@ describe('ScheduledChecksService races and recurrence', () => {
           }),
         }),
       }),
-      findOne: async () => state.plan,
-      exists: async () => false,
+      findOne: async (entity: unknown) =>
+        entity === Asset ? state.asset : state.plan,
+      exists: async (_entity: unknown, options: any) =>
+        fakeWorkOrderExists(options.where),
       create: (_e: unknown, plain: unknown) => plain,
-      save: async (entity: unknown) => entity,
+      save: async (entity: any) => {
+        if (entity.source === 'PLANNED') {
+          const saved = {
+            id: `wo-${workOrders.length + 1}`,
+            planId: entity.maintenancePlanId,
+            status: entity.status,
+            openedAt: new Date(),
+          };
+          workOrders.push(saved);
+          return { ...entity, id: saved.id };
+        }
+        return entity;
+      },
     };
+    const fakeWorkOrderExists = (where: any): boolean =>
+      workOrders.some(
+        (wo) =>
+          wo.planId === where.maintenancePlanId &&
+          (where.status
+            ? (where.status as { _value: string[] })._value.includes(wo.status)
+            : wo.openedAt >= (where.openedAt as { _value: Date })._value),
+      );
     dataSource = {
       manager: { findOne: jest.fn(async () => null) },
       transaction: (cb: (m: any) => Promise<unknown>) => {
@@ -449,8 +612,13 @@ describe('ScheduledChecksService races and recurrence', () => {
       inventory,
       notificationsService,
       dataSource,
-      { exists: jest.fn(async () => false) } as any,
+      {
+        exists: jest.fn(async (options: any) =>
+          fakeWorkOrderExists(options.where),
+        ),
+      } as any,
       ai as any,
+      { record: jest.fn(async () => ({})) } as any,
     );
   });
 
@@ -576,6 +744,70 @@ describe('ScheduledChecksService races and recurrence', () => {
       ]);
 
       expect(notifications).toHaveLength(1);
+    });
+  });
+
+  describe('planned work order generation', () => {
+    it('opens exactly one PLANNED work order per due plan across repeated runs', async () => {
+      await scheduler.checkOverdueMaintenance();
+      await scheduler.checkOverdueMaintenance();
+      await scheduler.checkOverdueMaintenance();
+
+      expect(workOrders).toHaveLength(1);
+      expect(workOrders[0].planId).toBe('plan-1');
+      expect(active('OVERDUE_MAINTENANCE')).toHaveLength(1);
+    });
+
+    it('concurrent scheduler runs open only one work order', async () => {
+      ai.generate.mockImplementation(
+        () => new Promise((resolve) => setImmediate(() => resolve(null))),
+      );
+
+      await Promise.all([
+        scheduler.checkOverdueMaintenance(),
+        scheduler.checkOverdueMaintenance(),
+      ]);
+
+      expect(workOrders).toHaveLength(1);
+    });
+
+    it('does not regenerate after the work order of this due cycle is cancelled', async () => {
+      await scheduler.checkOverdueMaintenance();
+      workOrders[0].status = 'CANCELLED';
+
+      await scheduler.checkOverdueMaintenance();
+
+      expect(workOrders).toHaveLength(1);
+    });
+
+    it('starts a new cycle when the due date is moved again after a cancellation', async () => {
+      await scheduler.checkOverdueMaintenance();
+      workOrders[0].status = 'CANCELLED';
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      state.plan.nextDueAt = new Date(); // supervisor re-dates the plan to now
+
+      await scheduler.checkOverdueMaintenance();
+
+      expect(workOrders).toHaveLength(2);
+    });
+
+    it('generates nothing for a DECOMMISSIONED asset', async () => {
+      state.asset.status = 'DECOMMISSIONED';
+
+      await scheduler.checkOverdueMaintenance();
+
+      expect(workOrders).toHaveLength(0);
+    });
+
+    it('does not generate when the plan is deactivated after the scheduler read its snapshot', async () => {
+      ai.generate.mockImplementation(async () => {
+        await plans.update('plan-1', { active: false } as any, actor);
+        return null;
+      });
+
+      await scheduler.checkOverdueMaintenance();
+
+      expect(workOrders).toHaveLength(0);
     });
   });
 });
