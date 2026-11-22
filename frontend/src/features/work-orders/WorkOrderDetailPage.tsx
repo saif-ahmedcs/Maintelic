@@ -23,11 +23,11 @@ import {
   assignWorkOrder,
   blockWorkOrder,
   cancelWorkOrder,
-  completeWorkOrder,
   getWorkOrder,
   startWorkOrder,
   type WorkOrderPart,
 } from './api';
+import { CompleteWorkOrderDialog } from './CompleteWorkOrderDialog';
 import { actionLabel, nextActions, type WorkOrderAction } from './transitions';
 
 const blockReasonSchema = z
@@ -96,6 +96,7 @@ export default function WorkOrderDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [confirmingBlock, setConfirmingBlock] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [blockReason, setBlockReason] = useState('');
   const [blockReasonError, setBlockReasonError] = useState<string | null>(null);
   const blockReasonRef = useRef<HTMLTextAreaElement>(null);
@@ -165,15 +166,6 @@ export default function WorkOrderDetailPage() {
     onError: handleTransitionError,
   });
 
-  const completeMutation = useMutation({
-    mutationFn: () => completeWorkOrder(id as string),
-    onSuccess: () => {
-      setActionError(null);
-      invalidateAfterTransition();
-    },
-    onError: handleTransitionError,
-  });
-
   const cancelMutation = useMutation({
     mutationFn: () => cancelWorkOrder(id as string),
     onSuccess: () => {
@@ -235,8 +227,8 @@ export default function WorkOrderDetailPage() {
       run: () => startMutation.mutate(),
     },
     complete: {
-      isPending: completeMutation.isPending,
-      run: () => completeMutation.mutate(),
+      isPending: false,
+      run: () => setCompleting(true),
     },
     block: {
       isPending: blockMutation.isPending,
@@ -396,6 +388,11 @@ export default function WorkOrderDetailPage() {
             rows={parts}
             rowKey={(row) => row.sparePartId}
           />
+          {workOrder.totalCost !== null && (
+            <p className="font-display text-body font-normal text-text-silver">
+              Total cost: {workOrder.totalCost.toFixed(2)}
+            </p>
+          )}
         </div>
       )}
 
@@ -416,6 +413,21 @@ export default function WorkOrderDetailPage() {
           ))}
         </Surface>
       </div>
+
+      <CompleteWorkOrderDialog
+        open={completing}
+        workOrderId={workOrder.id}
+        onClose={() => setCompleting(false)}
+        onCompleted={() => {
+          setActionError(null);
+          invalidateAfterTransition();
+        }}
+        onConflict={() => {
+          void queryClient.invalidateQueries({
+            queryKey: ['work-orders', 'detail', id],
+          });
+        }}
+      />
 
       <Dialog
         open={confirmingCancel}

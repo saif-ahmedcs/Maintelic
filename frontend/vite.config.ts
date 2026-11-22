@@ -45,6 +45,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: true,
+    env: { VITE_PLANT_TIMEZONE: 'UTC' },
     exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 });

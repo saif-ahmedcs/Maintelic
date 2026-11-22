@@ -28,6 +28,29 @@ export async function listSpareParts(params: ListSparePartsParams = {}) {
   return paginated(sparePartSchema).parse(data);
 }
 
+const ALL_PARTS_PAGE_SIZE = 100; // backend MAX_PAGE_SIZE
+
+/** Walks every page of GET /spare-parts (for pickers that need the full catalogue). */
+export async function listAllSpareParts(): Promise<SparePart[]> {
+  const first = await listSpareParts({
+    page: 1,
+    limit: ALL_PARTS_PAGE_SIZE,
+    sortBy: 'part.sku',
+    sortDir: 'ASC',
+  });
+  const all = [...first.data];
+  for (let page = 2; page <= first.meta.totalPages; page += 1) {
+    const next = await listSpareParts({
+      page,
+      limit: ALL_PARTS_PAGE_SIZE,
+      sortBy: 'part.sku',
+      sortDir: 'ASC',
+    });
+    all.push(...next.data);
+  }
+  return all;
+}
+
 /** GET /spare-parts/:id */
 export async function getSparePart(id: string): Promise<SparePart> {
   const data = await request<unknown>(`/spare-parts/${id}`);

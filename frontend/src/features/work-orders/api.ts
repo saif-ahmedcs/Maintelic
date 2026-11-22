@@ -124,11 +124,24 @@ export async function blockWorkOrder(
   return workOrderSchema.parse(data);
 }
 
-/** PATCH /work-orders/:id/complete */
-export async function completeWorkOrder(id: string): Promise<WorkOrder> {
+export interface CompleteWorkOrderPartInput {
+  sparePartId: string;
+  quantityUsed: number;
+}
+
+export interface CompleteWorkOrderInput {
+  parts?: CompleteWorkOrderPartInput[];
+}
+
+/* PATCH /work-orders/:id/complete */
+export async function completeWorkOrder(
+  id: string,
+  input: CompleteWorkOrderInput = {},
+): Promise<WorkOrder> {
+  const parts = input.parts ?? [];
   const data = await request<unknown>(`/work-orders/${id}/complete`, {
     method: 'PATCH',
-    body: {},
+    body: parts.length > 0 ? { parts } : {},
   });
   return workOrderSchema.parse(data);
 }

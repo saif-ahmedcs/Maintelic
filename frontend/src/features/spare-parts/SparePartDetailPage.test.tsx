@@ -278,7 +278,13 @@ describe('SparePartDetailPage', () => {
       renderPage(['/app/spare-parts/sp-adjust']);
 
       await screen.findByRole('heading', { name: 'Pump mechanical seal' });
-      expect(screen.getByText(formatNumber(55))).toBeInTheDocument();
+      // Scope to the stat tile: the same number also appears in the
+      // transaction table's "Quantity after" column once it has loaded.
+      const onHandStat = (await screen.findByText('Quantity on hand'))
+        .parentElement as HTMLElement;
+      expect(
+        within(onHandStat).getByText(formatNumber(55)),
+      ).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'Adjust' }));
       const dialog = await screen.findByRole('dialog', {
@@ -296,7 +302,11 @@ describe('SparePartDetailPage', () => {
       // Dialog closes and the stat counter reflects the server's new figure,
       // not a client-side subtraction.
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      expect(await screen.findByText(formatNumber(52))).toBeInTheDocument();
+      await waitFor(() =>
+        expect(
+          within(onHandStat).getByText(formatNumber(52)),
+        ).toBeInTheDocument(),
+      );
 
       // The transaction table refetched and shows the new row.
       const newRow = await screen.findByRole('row', { name: /-3/ });

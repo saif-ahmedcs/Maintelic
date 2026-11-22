@@ -34,9 +34,15 @@ test('create, assign, start, complete a work order, then verify the audit trail'
   await page.getByRole('button', { name: 'Start work' }).click();
   await expect(page.getByText('IN PROGRESS', { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Complete' }).click();
+  await page.getByRole('button', { name: 'Complete', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Complete work order' })
+    .click();
   await expect(page.getByText('COMPLETED', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Complete' })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Complete', exact: true }),
+  ).toHaveCount(0);
 
   await page.goto('audit');
   await page.getByLabel('Entity type').selectOption('WorkOrder');
