@@ -20,6 +20,7 @@ describe('AssetsService', () => {
   let dataSource: { transaction: jest.Mock };
   let auditService: { record: jest.Mock };
   let assetHistoryService: { record: jest.Mock };
+  let notificationsService: { resolveActive: jest.Mock };
 
   const actor: RequestUser = {
     id: 'user-1',
@@ -39,12 +40,14 @@ describe('AssetsService', () => {
     dataSource = { transaction: jest.fn((cb) => cb(manager)) };
     auditService = { record: jest.fn(async () => ({})) };
     assetHistoryService = { record: jest.fn(async () => ({})) };
+    notificationsService = { resolveActive: jest.fn(async () => 1) };
 
     service = new AssetsService(
       assetRepo as any,
       dataSource as any,
       auditService as any,
       assetHistoryService as any,
+      notificationsService as any,
     );
   });
 
@@ -329,6 +332,92 @@ describe('AssetsService', () => {
         expect(assetHistoryService.record).not.toHaveBeenCalled();
       },
     );
+
+    describe('CRITICAL_ASSET notification reconciliation', () => {
+      const setup = (status: AssetStatus) => {
+        manager.findOne.mockResolvedValue({ id: 'asset-1', status });
+        manager.save.mockImplementation(async (entity) => entity);
+      };
+
+      it.each([AssetStatus.OPERATIONAL, AssetStatus.UNDER_MAINTENANCE])(
+        'resolves the notification when a CRITICAL asset is set to %s',
+        async (target) => {
+          setup(AssetStatus.CRITICAL);
+
+          await service.updateStatus(
+            'asset-1',
+            { status: target } as any,
+            actor,
+          );
+
+          expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+            manager,
+            'CRITICAL_ASSET',
+            'Asset',
+            'asset-1',
+          );
+        },
+      );
+
+      it('also resolves it when a CRITICAL asset is decommissioned', async () => {
+        setup(AssetStatus.CRITICAL);
+
+        await service.updateStatus(
+          'asset-1',
+          { status: AssetStatus.DECOMMISSIONED } as any,
+          actor,
+        );
+
+        expect(notificationsService.resolveActive).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not resolve when the asset becomes CRITICAL or the status is unchanged', async () => {
+        setup(AssetStatus.OPERATIONAL);
+        await service.updateStatus(
+          'asset-1',
+          { status: AssetStatus.CRITICAL } as any,
+          actor,
+        );
+
+        setup(AssetStatus.CRITICAL);
+        await service.updateStatus(
+          'asset-1',
+          { status: AssetStatus.CRITICAL } as any,
+          actor,
+        );
+
+        expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+      });
+
+      it('never resolves anything for a rejected DECOMMISSIONED transition (DI-1 invariant)', async () => {
+        setup(AssetStatus.DECOMMISSIONED);
+
+        await expect(
+          service.updateStatus(
+            'asset-1',
+            { status: AssetStatus.OPERATIONAL } as any,
+            actor,
+          ),
+        ).rejects.toThrow(ConflictException);
+        expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+        expect(assetHistoryService.record).not.toHaveBeenCalled();
+      });
+
+      it('keeps audit + history writes and propagates a reconciliation failure', async () => {
+        setup(AssetStatus.CRITICAL);
+        notificationsService.resolveActive.mockRejectedValue(
+          new Error('db down'),
+        );
+
+        await expect(
+          service.updateStatus(
+            'asset-1',
+            { status: AssetStatus.OPERATIONAL } as any,
+            actor,
+          ),
+        ).rejects.toThrow('db down');
+      });
+    });
 
     it('locks the asset row while changing its status', async () => {
       manager.findOne.mockResolvedValue({

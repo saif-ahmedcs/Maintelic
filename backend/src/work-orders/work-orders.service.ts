@@ -14,6 +14,8 @@ import { paginate, PaginatedResult } from '../common/pagination/paginate';
 import { InventoryService } from '../inventory/inventory.service';
 import { AssetHistoryService } from '../asset-history/asset-history.service';
 import { MaintenancePlan } from '../maintenance-plans/entities/maintenance-plan.entity';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RoleName } from '../users/entities/role.entity';
 import { AssignWorkOrderDto } from './dto/assign-work-order.dto';
 import { BlockWorkOrderDto } from './dto/block-work-order.dto';
@@ -44,6 +46,7 @@ export class WorkOrdersService {
     private readonly auditService: AuditService,
     private readonly inventoryService: InventoryService,
     private readonly assetHistoryService: AssetHistoryService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private isPrivileged(actor: RequestUser): boolean {
@@ -85,6 +88,21 @@ export class WorkOrdersService {
     return asset;
   }
 
+  private async reconcileCriticalAssetNotification(
+    manager: EntityManager,
+    asset: Asset,
+  ): Promise<void> {
+    if (asset.status === AssetStatus.CRITICAL) {
+      return;
+    }
+    await this.notificationsService.resolveActive(
+      manager,
+      NotificationType.CRITICAL_ASSET,
+      'Asset',
+      asset.id,
+    );
+  }
+
   async findAll(query: WorkOrderQueryDto): Promise<PaginatedResult<WorkOrder>> {
     const qb = this.workOrderRepo.createQueryBuilder('workOrder');
     if (query.assetId) {
@@ -123,6 +141,8 @@ export class WorkOrdersService {
     actor: RequestUser,
   ): Promise<WorkOrder> {
     return this.dataSource.transaction(async (manager) => {
+      // Locked so a concurrent decommission cannot land between this check
+      // and the insert.
       const asset = await this.lockAsset(manager, dto.assetId);
       if (asset.status === AssetStatus.DECOMMISSIONED) {
         throw new ConflictException(
@@ -342,6 +362,9 @@ export class WorkOrdersService {
       workOrder.cancelledAt = new Date();
       const saved = await manager.save(workOrder);
 
+      const asset = await this.lockAsset(manager, saved.assetId);
+      await this.reconcileCriticalAssetNotification(manager, asset);
+
       await this.auditService.record(manager, {
         actorUserId: actor.id,
         entityType: 'WorkOrder',
@@ -418,15 +441,26 @@ export class WorkOrdersService {
         asset.status = AssetStatus.OPERATIONAL;
         savedAsset = await manager.save(asset);
       }
+      await this.reconcileCriticalAssetNotification(manager, savedAsset);
 
       if (workOrder.maintenancePlanId) {
-        const plan = await manager.findOneBy(MaintenancePlan, {
-          id: workOrder.maintenancePlanId,
+        const plan = await manager.findOne(MaintenancePlan, {
+          where: { id: workOrder.maintenancePlanId },
+          lock: { mode: 'pessimistic_write' },
         });
         if (plan) {
           plan.lastCompletedAt = new Date();
           plan.nextDueAt = daysFromNow(plan.intervalDays);
           await manager.save(plan);
+
+          if (plan.nextDueAt && plan.nextDueAt > new Date()) {
+            await this.notificationsService.resolveActive(
+              manager,
+              NotificationType.OVERDUE_MAINTENANCE,
+              'MaintenancePlan',
+              plan.id,
+            );
+          }
         }
       }
 

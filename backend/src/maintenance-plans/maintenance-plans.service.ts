@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Asset } from '../assets/entities/asset.entity';
 import { AuditService } from '../audit/audit.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RequestUser } from '../auth/interfaces/request-user.interface';
 import { paginate, PaginatedResult } from '../common/pagination/paginate';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
@@ -24,6 +26,7 @@ export class MaintenancePlansService {
     private readonly taskRepo: Repository<MaintenanceTask>,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findAll(
@@ -130,7 +133,10 @@ export class MaintenancePlansService {
     actor: RequestUser,
   ): Promise<MaintenancePlan> {
     return this.dataSource.transaction(async (manager) => {
-      const plan = await manager.findOneBy(MaintenancePlan, { id });
+      const plan = await manager.findOne(MaintenancePlan, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!plan) {
         throw new NotFoundException(`Maintenance plan ${id} not found`);
       }
@@ -148,6 +154,19 @@ export class MaintenancePlansService {
       if (dto.active !== undefined) plan.active = dto.active;
 
       const saved = await manager.save(plan);
+
+      if (dto.active !== undefined || dto.nextDueAt !== undefined) {
+        const stillOverdue =
+          saved.active && !!saved.nextDueAt && saved.nextDueAt <= new Date();
+        if (!stillOverdue) {
+          await this.notificationsService.resolveActive(
+            manager,
+            NotificationType.OVERDUE_MAINTENANCE,
+            'MaintenancePlan',
+            saved.id,
+          );
+        }
+      }
 
       await this.auditService.record(manager, {
         actorUserId: actor.id,
@@ -170,12 +189,22 @@ export class MaintenancePlansService {
 
   async remove(id: string, actor: RequestUser): Promise<void> {
     return this.dataSource.transaction(async (manager) => {
-      const plan = await manager.findOneBy(MaintenancePlan, { id });
+      const plan = await manager.findOne(MaintenancePlan, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!plan) {
         throw new NotFoundException(`Maintenance plan ${id} not found`);
       }
 
       await manager.remove(plan);
+
+      await this.notificationsService.resolveActive(
+        manager,
+        NotificationType.OVERDUE_MAINTENANCE,
+        'MaintenancePlan',
+        id,
+      );
 
       await this.auditService.record(manager, {
         actorUserId: actor.id,

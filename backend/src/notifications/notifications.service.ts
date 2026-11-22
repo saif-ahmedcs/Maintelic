@@ -55,8 +55,12 @@ export class NotificationsService {
     type: NotificationType,
     relatedEntityType: string,
     relatedEntityId: string,
+    manager?: EntityManager,
   ): Promise<boolean> {
-    const count = await this.notificationRepo.count({
+    const repo = manager
+      ? manager.getRepository(Notification)
+      : this.notificationRepo;
+    const count = await repo.count({
       where: {
         type,
         relatedEntityType,
@@ -65,6 +69,29 @@ export class NotificationsService {
       },
     });
     return count > 0;
+  }
+
+  async resolveActive(
+    manager: EntityManager,
+    type: NotificationType,
+    relatedEntityType: string,
+    relatedEntityId: string,
+  ): Promise<number> {
+    const result = await manager.update(
+      Notification,
+      {
+        type,
+        relatedEntityType,
+        relatedEntityId,
+        status: In(ACTIVE_NOTIFICATION_STATUSES),
+      },
+      {
+        status: NotificationStatus.RESOLVED,
+        resolvedAt: new Date(),
+        resolvedByUserId: null,
+      },
+    );
+    return result.affected ?? 0;
   }
 
   async findAll(

@@ -78,7 +78,15 @@ export class ConditionMonitoringService {
         assetId,
       ),
     ]);
-    if (hasActiveAutoWorkOrder || hasActiveNotification) {
+    if (hasActiveAutoWorkOrder) {
+      return;
+    }
+
+    const notificationIsStale =
+      hasActiveNotification &&
+      !!current &&
+      current.status !== AssetStatus.CRITICAL;
+    if (hasActiveNotification && !notificationIsStale) {
       return;
     }
 
@@ -123,6 +131,24 @@ export class ConditionMonitoringService {
           `Condition monitoring: asset ${assetId} was decommissioned, skipping`,
         );
         return;
+      }
+
+      const stillActive = await this.notificationsService.hasActiveNotification(
+        NotificationType.CRITICAL_ASSET,
+        'Asset',
+        assetId,
+        manager,
+      );
+      if (stillActive) {
+        if (asset.status === AssetStatus.CRITICAL) {
+          return;
+        }
+        await this.notificationsService.resolveActive(
+          manager,
+          NotificationType.CRITICAL_ASSET,
+          'Asset',
+          assetId,
+        );
       }
 
       const statusBefore = asset.status;

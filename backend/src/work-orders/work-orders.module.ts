@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditModule } from '../audit/audit.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { AssetHistoryModule } from '../asset-history/asset-history.module';
@@ -14,6 +15,7 @@ import { WorkOrdersService } from './work-orders.service';
     AuditModule,
     InventoryModule,
     AssetHistoryModule,
+    NotificationsModule,
   ],
   controllers: [WorkOrdersController],
   providers: [WorkOrdersService],

@@ -8,6 +8,8 @@ import { DataSource, Repository } from 'typeorm';
 import { AssetType } from '../asset-types/entities/asset-type.entity';
 import { AuditService } from '../audit/audit.service';
 import { AssetHistoryService } from '../asset-history/asset-history.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RequestUser } from '../auth/interfaces/request-user.interface';
 import { paginate, PaginatedResult } from '../common/pagination/paginate';
 import { Location } from '../locations/entities/location.entity';
@@ -27,6 +29,7 @@ export class AssetsService {
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
     private readonly assetHistoryService: AssetHistoryService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findAll(query: AssetQueryDto): Promise<PaginatedResult<Asset>> {
@@ -229,6 +232,18 @@ export class AssetsService {
         changedByUserId: actor.id,
         source: 'manual',
       });
+
+      if (
+        before.status === AssetStatus.CRITICAL &&
+        saved.status !== AssetStatus.CRITICAL
+      ) {
+        await this.notificationsService.resolveActive(
+          manager,
+          NotificationType.CRITICAL_ASSET,
+          'Asset',
+          saved.id,
+        );
+      }
 
       return saved;
     });

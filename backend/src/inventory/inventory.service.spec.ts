@@ -33,6 +33,7 @@ describe('InventoryService', () => {
   };
   let dataSource: { transaction: jest.Mock };
   let auditService: { record: jest.Mock };
+  let notificationsService: { resolveActive: jest.Mock };
 
   const actor: RequestUser = {
     id: 'user-1',
@@ -79,12 +80,14 @@ describe('InventoryService', () => {
     };
     dataSource = { transaction: jest.fn((cb) => cb(manager)) };
     auditService = { record: jest.fn(async () => ({})) };
+    notificationsService = { resolveActive: jest.fn(async () => 1) };
 
     service = new InventoryService(
       sparePartRepo as any,
       inventoryTransactionRepo as any,
       dataSource as any,
       auditService as any,
+      notificationsService as any,
     );
   });
 
@@ -331,6 +334,145 @@ describe('InventoryService', () => {
         manager,
         expect.objectContaining({ entityType: 'SparePart', action: 'DELETE' }),
       );
+    });
+  });
+
+  describe('low-stock notification reconciliation', () => {
+    const resolvedFor = (partId: string) => [
+      manager,
+      'LOW_STOCK',
+      'SparePart',
+      partId,
+    ];
+
+    it('resolves LOW_STOCK after a restock lifts quantity above the threshold', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        makePart({ quantityOnHand: 1, reorderThreshold: 5 }),
+      );
+
+      await service.restock('part-1', { quantity: 10 } as any, actor);
+
+      expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+        ...resolvedFor('part-1'),
+      );
+    });
+
+    it('keeps LOW_STOCK when a restock still leaves quantity at/below the threshold', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        makePart({ quantityOnHand: 1, reorderThreshold: 5 }),
+      );
+
+      await service.restock('part-1', { quantity: 4 } as any, actor); // 5 <= 5
+
+      expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+    });
+
+    it('resolves LOW_STOCK after a positive adjustment above the threshold', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        makePart({ quantityOnHand: 1, reorderThreshold: 5 }),
+      );
+
+      await service.adjust(
+        'part-1',
+        { delta: 20, reason: 'recount' } as any,
+        actor,
+      );
+
+      expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+        ...resolvedFor('part-1'),
+      );
+    });
+
+    it('does not resolve anything on a negative adjustment', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        makePart({ quantityOnHand: 50, reorderThreshold: 5 }),
+      );
+
+      await service.adjust(
+        'part-1',
+        { delta: -3, reason: 'damaged' } as any,
+        actor,
+      );
+
+      expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+    });
+
+    it('decides from the persisted row re-read under the lock, not the in-memory entity', async () => {
+      queryBuilder.getOne
+        .mockResolvedValueOnce(
+          makePart({ quantityOnHand: 1, reorderThreshold: 5 }),
+        ) // lock for the stock change
+        .mockResolvedValueOnce(
+          makePart({ quantityOnHand: 2, reorderThreshold: 5 }),
+        ); // persisted state seen by reconciliation: still low
+
+      await service.restock('part-1', { quantity: 100 } as any, actor);
+
+      expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+    });
+
+    it('resolves LOW_STOCK when the threshold is lowered below the quantity', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        makePart({ quantityOnHand: 3, reorderThreshold: 5 }),
+      );
+
+      await service.update('part-1', { reorderThreshold: 2 } as any, actor);
+
+      expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+        ...resolvedFor('part-1'),
+      );
+    });
+
+    it('keeps LOW_STOCK when the threshold is raised above the quantity', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        makePart({ quantityOnHand: 3, reorderThreshold: 2 }),
+      );
+
+      await service.update('part-1', { reorderThreshold: 10 } as any, actor);
+
+      expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+    });
+
+    it('does not reconcile when an update does not touch the threshold', async () => {
+      queryBuilder.getOne.mockResolvedValue(makePart());
+
+      await service.update('part-1', { name: 'Renamed' } as any, actor);
+
+      expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+    });
+
+    it('does not reconcile on consume (stock only goes down)', async () => {
+      queryBuilder.getOne.mockResolvedValue(makePart({ quantityOnHand: 10 }));
+
+      await service.consume(manager as any, 'part-1', 2, {
+        createdByUserId: actor.id,
+      });
+
+      expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+    });
+
+    it('resolves LOW_STOCK when the part is removed', async () => {
+      queryBuilder.getOne.mockResolvedValue(makePart());
+
+      await service.remove('part-1', actor);
+
+      expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+        ...resolvedFor('part-1'),
+      );
+    });
+
+    it('propagates a reconciliation failure so the whole transaction aborts (no audit written)', async () => {
+      queryBuilder.getOne.mockResolvedValue(
+        makePart({ quantityOnHand: 1, reorderThreshold: 5 }),
+      );
+      notificationsService.resolveActive.mockRejectedValue(
+        new Error('db down'),
+      );
+
+      await expect(
+        service.restock('part-1', { quantity: 10 } as any, actor),
+      ).rejects.toThrow('db down');
+      expect(auditService.record).not.toHaveBeenCalled();
     });
   });
 });

@@ -11,6 +11,7 @@ describe('ConditionMonitoringService', () => {
   let notificationsService: {
     record: jest.Mock;
     hasActiveNotification: jest.Mock;
+    resolveActive: jest.Mock;
   };
   let aiInsightsService: { generate: jest.Mock };
 
@@ -26,6 +27,7 @@ describe('ConditionMonitoringService', () => {
     notificationsService = {
       record: jest.fn(),
       hasActiveNotification: jest.fn(async () => false),
+      resolveActive: jest.fn(async () => 1),
     };
     aiInsightsService = { generate: jest.fn() };
 
@@ -177,6 +179,98 @@ describe('ConditionMonitoringService', () => {
         }),
       );
       expect(notificationsService.record).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('notification lifecycle / recurrence', () => {
+    const hot = [{ temperature: 90 }, { temperature: 90 }, { temperature: 90 }];
+    let txAsset: { id: string; tag: string; status: AssetStatus };
+    let txManager: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock };
+
+    beforeEach(() => {
+      readingRepo.find.mockResolvedValue(hot);
+      txAsset = { id: 'asset-1', tag: 'A-1', status: AssetStatus.OPERATIONAL };
+      txManager = {
+        findOne: jest.fn(async () => txAsset),
+        create: jest.fn((_e: unknown, plain: object) => plain),
+        save: jest.fn(async (e: object) => ({ id: 'x', ...e })),
+      };
+      dataSource.transaction.mockImplementation((cb: any) => cb(txManager));
+    });
+
+    it('creates a new alert + work order after the previous notification was resolved', async () => {
+      dataSource.manager.findOne.mockResolvedValue({
+        id: 'asset-1',
+        status: AssetStatus.OPERATIONAL,
+        tag: 'A-1',
+      });
+      // previous notification already RESOLVED -> nothing active
+      notificationsService.hasActiveNotification.mockResolvedValue(false);
+
+      await service.evaluateAsset('asset-1');
+
+      expect(txAsset.status).toBe(AssetStatus.CRITICAL);
+      expect(notificationsService.record).toHaveBeenCalledTimes(1);
+      expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+    });
+
+    it('still suppresses duplicates while the asset really is CRITICAL with an active notification', async () => {
+      dataSource.manager.findOne.mockResolvedValue({
+        id: 'asset-1',
+        status: AssetStatus.CRITICAL,
+      });
+      notificationsService.hasActiveNotification.mockResolvedValue(true);
+
+      await service.evaluateAsset('asset-1');
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(notificationsService.record).not.toHaveBeenCalled();
+    });
+
+    it('treats an active notification as stale when the asset is no longer critical: resolves it and raises a new alert', async () => {
+      dataSource.manager.findOne.mockResolvedValue({
+        id: 'asset-1',
+        status: AssetStatus.OPERATIONAL,
+        tag: 'A-1',
+      });
+      notificationsService.hasActiveNotification.mockResolvedValue(true);
+
+      await service.evaluateAsset('asset-1');
+
+      expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+        txManager,
+        'CRITICAL_ASSET',
+        'Asset',
+        'asset-1',
+      );
+      expect(txAsset.status).toBe(AssetStatus.CRITICAL);
+      expect(notificationsService.record).toHaveBeenCalledTimes(1);
+    });
+
+    it('concurrency: a competing worker already raised the alert -> authoritative re-check under the lock creates nothing', async () => {
+      dataSource.manager.findOne.mockResolvedValue({
+        id: 'asset-1',
+        status: AssetStatus.OPERATIONAL,
+        tag: 'A-1',
+      });
+      // outside the tx nothing is active; inside, the other worker's commit is visible
+      notificationsService.hasActiveNotification
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      txAsset.status = AssetStatus.CRITICAL;
+
+      await service.evaluateAsset('asset-1');
+
+      expect(
+        notificationsService.hasActiveNotification,
+      ).toHaveBeenLastCalledWith(
+        'CRITICAL_ASSET',
+        'Asset',
+        'asset-1',
+        txManager,
+      );
+      expect(txManager.save).not.toHaveBeenCalled();
+      expect(notificationsService.record).not.toHaveBeenCalled();
     });
   });
 });

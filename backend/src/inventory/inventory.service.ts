@@ -6,6 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
+import { NotificationType } from '../notifications/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RequestUser } from '../auth/interfaces/request-user.interface';
 import { paginate, PaginatedResult } from '../common/pagination/paginate';
 import { AdjustSparePartDto } from './dto/adjust-spare-part.dto';
@@ -46,6 +48,7 @@ export class InventoryService {
     private readonly inventoryTransactionRepo: Repository<InventoryTransaction>,
     private readonly dataSource: DataSource,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private async lockPart(
@@ -62,6 +65,21 @@ export class InventoryService {
       throw new NotFoundException(`Spare part ${sparePartId} not found`);
     }
     return sparePart;
+  }
+
+  private async reconcileLowStockNotification(
+    manager: EntityManager,
+    sparePartId: string,
+  ): Promise<void> {
+    const part = await this.lockPart(manager, sparePartId);
+    if (part.quantityOnHand > part.reorderThreshold) {
+      await this.notificationsService.resolveActive(
+        manager,
+        NotificationType.LOW_STOCK,
+        'SparePart',
+        part.id,
+      );
+    }
   }
 
   private async applyStockChange(
@@ -83,6 +101,9 @@ export class InventoryService {
 
     part.quantityOnHand = quantityAfter;
     const savedPart = await manager.save(part);
+    if (delta > 0) {
+      await this.reconcileLowStockNotification(manager, savedPart.id);
+    }
 
     const transaction = await manager.save(
       manager.create(InventoryTransaction, {
@@ -215,6 +236,9 @@ export class InventoryService {
       }
       if (dto.unitCost !== undefined) part.unitCost = dto.unitCost;
       const saved = await manager.save(part);
+      if (dto.reorderThreshold !== undefined) {
+        await this.reconcileLowStockNotification(manager, saved.id);
+      }
 
       await this.auditService.record(manager, {
         actorUserId: actor.id,
@@ -315,6 +339,13 @@ export class InventoryService {
       const part = await this.lockPart(manager, id);
 
       await manager.remove(part);
+
+      await this.notificationsService.resolveActive(
+        manager,
+        NotificationType.LOW_STOCK,
+        'SparePart',
+        id,
+      );
 
       await this.auditService.record(manager, {
         actorUserId: actor.id,

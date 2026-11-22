@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditModule } from '../audit/audit.module';
 import { MaintenancePlan } from './entities/maintenance-plan.entity';
 import { MaintenanceTask } from './entities/maintenance-task.entity';
@@ -10,6 +11,7 @@ import { MaintenancePlansService } from './maintenance-plans.service';
   imports: [
     TypeOrmModule.forFeature([MaintenancePlan, MaintenanceTask]),
     AuditModule,
+    NotificationsModule,
   ],
   controllers: [MaintenancePlansController],
   providers: [MaintenancePlansService],

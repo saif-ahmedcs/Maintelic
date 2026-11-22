@@ -15,6 +15,7 @@ describe('WorkOrdersService.complete', () => {
   let service: WorkOrdersService;
   let workOrderRepo: { findOne: jest.Mock; createQueryBuilder: jest.Mock };
   let manager: {
+    findOne: jest.Mock;
     findOneBy: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
@@ -26,6 +27,7 @@ describe('WorkOrdersService.complete', () => {
   let auditService: { record: jest.Mock };
   let inventoryService: { consume: jest.Mock };
   let assetHistoryService: { record: jest.Mock };
+  let notificationsService: { resolveActive: jest.Mock };
 
   const technician: RequestUser = {
     id: 'tech-1',
@@ -75,10 +77,11 @@ describe('WorkOrdersService.complete', () => {
       createQueryBuilder: jest.fn((entity: unknown) =>
         entity === Asset ? assetLockQb : lockQb,
       ),
-      findOneBy: jest.fn(async (entity: unknown) => {
+      findOne: jest.fn(async (entity: unknown) => {
         if (entity === MaintenancePlan) return plan;
         return null;
       }),
+      findOneBy: jest.fn(async () => null),
       create: jest.fn((_entity, plain) => plain),
       save: jest.fn(async (entity) => entity),
     };
@@ -86,6 +89,7 @@ describe('WorkOrdersService.complete', () => {
     auditService = { record: jest.fn(async () => ({})) };
     inventoryService = { consume: jest.fn() };
     assetHistoryService = { record: jest.fn(async () => ({})) };
+    notificationsService = { resolveActive: jest.fn(async () => 1) };
 
     service = new WorkOrdersService(
       workOrderRepo as any,
@@ -93,6 +97,7 @@ describe('WorkOrdersService.complete', () => {
       auditService as any,
       inventoryService as any,
       assetHistoryService as any,
+      notificationsService as any,
     );
   });
 
@@ -234,7 +239,7 @@ describe('WorkOrdersService.complete', () => {
 
     await service.complete('wo-1', {}, technician);
 
-    expect(manager.findOneBy).not.toHaveBeenCalledWith(
+    expect(manager.findOne).not.toHaveBeenCalledWith(
       MaintenancePlan,
       expect.anything(),
     );
@@ -274,6 +279,79 @@ describe('WorkOrdersService.complete', () => {
         newStatus: AssetStatus.OPERATIONAL,
       }),
     );
+  });
+
+  describe('notification reconciliation on completion', () => {
+    it('resolves the CRITICAL_ASSET notification once the asset is no longer critical', async () => {
+      asset.status = AssetStatus.CRITICAL;
+
+      await service.complete('wo-1', {}, technician);
+
+      expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+        manager,
+        'CRITICAL_ASSET',
+        'Asset',
+        'asset-1',
+      );
+    });
+
+    it('also clears the alert of a DECOMMISSIONED asset (it is not critical)', async () => {
+      asset.status = AssetStatus.DECOMMISSIONED;
+
+      await service.complete('wo-1', {}, technician);
+
+      expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+        manager,
+        'CRITICAL_ASSET',
+        'Asset',
+        'asset-1',
+      );
+    });
+
+    it('resolves the OVERDUE_MAINTENANCE notification of the completed plan only', async () => {
+      await service.complete('wo-1', {}, technician);
+
+      expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+        manager,
+        'OVERDUE_MAINTENANCE',
+        'MaintenancePlan',
+        'plan-1',
+      );
+      expect(notificationsService.resolveActive).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not touch overdue notifications when the work order has no plan', async () => {
+      workOrder.maintenancePlanId = null;
+
+      await service.complete('wo-1', {}, technician);
+
+      expect(notificationsService.resolveActive).not.toHaveBeenCalledWith(
+        manager,
+        'OVERDUE_MAINTENANCE',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('locks the maintenance plan row while completing it', async () => {
+      await service.complete('wo-1', {}, technician);
+
+      expect(manager.findOne).toHaveBeenCalledWith(
+        MaintenancePlan,
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+    });
+
+    it('rolls back everything (error propagates) when reconciliation fails', async () => {
+      notificationsService.resolveActive.mockRejectedValue(
+        new Error('db down'),
+      );
+
+      await expect(service.complete('wo-1', {}, technician)).rejects.toThrow(
+        'db down',
+      );
+      expect(auditService.record).not.toHaveBeenCalled();
+    });
   });
 
   it('allows a supervisor who is not the assignee to complete it', async () => {
@@ -524,6 +602,7 @@ describe('WorkOrdersService.create', () => {
       auditService as any,
       {} as any,
       {} as any,
+      {} as any,
     );
   });
 
@@ -557,5 +636,95 @@ describe('WorkOrdersService.create', () => {
       manager,
       expect.objectContaining({ action: 'CREATE' }),
     );
+  });
+});
+
+describe('WorkOrdersService.cancel', () => {
+  let service: WorkOrdersService;
+  let manager: { save: jest.Mock; createQueryBuilder: jest.Mock };
+  let woQb: { setLock: jest.Mock; where: jest.Mock; getOne: jest.Mock };
+  let assetQb: { setLock: jest.Mock; where: jest.Mock; getOne: jest.Mock };
+  let auditService: { record: jest.Mock };
+  let notificationsService: { resolveActive: jest.Mock };
+  let workOrder: WorkOrder;
+  let asset: Asset;
+
+  const actor: RequestUser = {
+    id: 'super-1',
+    email: 'super@example.com',
+    roles: [RoleName.SUPERVISOR],
+  };
+
+  beforeEach(() => {
+    workOrder = {
+      id: 'wo-1',
+      assetId: 'asset-1',
+      status: WorkOrderStatus.OPEN,
+    } as WorkOrder;
+    asset = { id: 'asset-1', status: AssetStatus.CRITICAL } as Asset;
+    woQb = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getOne: jest.fn(async () => workOrder),
+    };
+    assetQb = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getOne: jest.fn(async () => asset),
+    };
+    manager = {
+      createQueryBuilder: jest.fn((entity: unknown) =>
+        entity === Asset ? assetQb : woQb,
+      ),
+      save: jest.fn(async (entity) => entity),
+    };
+    auditService = { record: jest.fn(async () => ({})) };
+    notificationsService = { resolveActive: jest.fn(async () => 1) };
+    service = new WorkOrdersService(
+      {} as any,
+      { transaction: jest.fn((cb) => cb(manager)) } as any,
+      auditService as any,
+      {} as any,
+      {} as any,
+      notificationsService as any,
+    );
+  });
+
+  it('keeps the CRITICAL_ASSET notification when the asset is still critical', async () => {
+    const result = await service.cancel('wo-1', actor);
+
+    expect(result.status).toBe(WorkOrderStatus.CANCELLED);
+    expect(notificationsService.resolveActive).not.toHaveBeenCalled();
+  });
+
+  it('locks the asset and resolves the notification only when the asset is no longer critical', async () => {
+    asset.status = AssetStatus.OPERATIONAL;
+
+    await service.cancel('wo-1', actor);
+
+    expect(assetQb.setLock).toHaveBeenCalledWith('pessimistic_write');
+    expect(notificationsService.resolveActive).toHaveBeenCalledWith(
+      manager,
+      'CRITICAL_ASSET',
+      'Asset',
+      'asset-1',
+    );
+  });
+
+  it('still cancels and audits normally', async () => {
+    await service.cancel('wo-1', actor);
+
+    expect(auditService.record).toHaveBeenCalledWith(
+      manager,
+      expect.objectContaining({ action: 'CANCEL' }),
+    );
+  });
+
+  it('rolls back (error propagates, no audit) when reconciliation fails', async () => {
+    asset.status = AssetStatus.OPERATIONAL;
+    notificationsService.resolveActive.mockRejectedValue(new Error('db down'));
+
+    await expect(service.cancel('wo-1', actor)).rejects.toThrow('db down');
+    expect(auditService.record).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { SparePart } from '../inventory/entities/spare-part.entity';
+import { MaintenancePlan } from '../maintenance-plans/entities/maintenance-plan.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { MaintenancePlansService } from '../maintenance-plans/maintenance-plans.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
@@ -69,12 +71,49 @@ export class ScheduledChecksService {
         dueAt: plan.nextDueAt,
       });
 
-      await this.notificationsService.record(this.dataSource.manager, {
-        type: NotificationType.OVERDUE_MAINTENANCE,
-        relatedEntityType: 'MaintenancePlan',
-        relatedEntityId: plan.id,
-        message: `Maintenance plan "${plan.name}" is overdue (was due ${plan.nextDueAt?.toISOString()}).`,
-        aiNote,
+      await this.dataSource.transaction(async (manager) => {
+        const current = await manager
+          .createQueryBuilder(MaintenancePlan, 'plan')
+          .setLock('pessimistic_write')
+          .where('plan.id = :id', { id: plan.id })
+          .getOne();
+        const stillOverdue =
+          !!current &&
+          current.active &&
+          !!current.nextDueAt &&
+          current.nextDueAt <= new Date();
+        if (!current || !stillOverdue) {
+          return;
+        }
+
+        const openWorkOrderNow = await manager.exists(WorkOrder, {
+          where: {
+            maintenancePlanId: plan.id,
+            status: In(ACTIVE_WORK_ORDER_STATUSES),
+          },
+        });
+        if (openWorkOrderNow) {
+          return;
+        }
+
+        const notifiedNow =
+          await this.notificationsService.hasActiveNotification(
+            NotificationType.OVERDUE_MAINTENANCE,
+            'MaintenancePlan',
+            plan.id,
+            manager,
+          );
+        if (notifiedNow) {
+          return;
+        }
+
+        await this.notificationsService.record(manager, {
+          type: NotificationType.OVERDUE_MAINTENANCE,
+          relatedEntityType: 'MaintenancePlan',
+          relatedEntityId: plan.id,
+          message: `Maintenance plan "${current.name}" is overdue (was due ${current.nextDueAt?.toISOString()}).`,
+          aiNote,
+        });
       });
     }
 
@@ -108,12 +147,34 @@ export class ScheduledChecksService {
         reorderThreshold: part.reorderThreshold,
       });
 
-      await this.notificationsService.record(this.dataSource.manager, {
-        type: NotificationType.LOW_STOCK,
-        relatedEntityType: 'SparePart',
-        relatedEntityId: part.id,
-        message: `Spare part ${part.sku} (${part.name}) is at or below its reorder threshold: ${part.quantityOnHand}/${part.reorderThreshold}.`,
-        aiNote,
+      await this.dataSource.transaction(async (manager) => {
+        const current = await manager
+          .createQueryBuilder(SparePart, 'part')
+          .setLock('pessimistic_write')
+          .where('part.id = :id', { id: part.id })
+          .getOne();
+        if (!current || current.quantityOnHand > current.reorderThreshold) {
+          return;
+        }
+
+        const notifiedNow =
+          await this.notificationsService.hasActiveNotification(
+            NotificationType.LOW_STOCK,
+            'SparePart',
+            part.id,
+            manager,
+          );
+        if (notifiedNow) {
+          return;
+        }
+
+        await this.notificationsService.record(manager, {
+          type: NotificationType.LOW_STOCK,
+          relatedEntityType: 'SparePart',
+          relatedEntityId: part.id,
+          message: `Spare part ${current.sku} (${current.name}) is at or below its reorder threshold: ${current.quantityOnHand}/${current.reorderThreshold}.`,
+          aiNote,
+        });
       });
     }
 
