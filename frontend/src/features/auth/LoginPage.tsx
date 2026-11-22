@@ -3,7 +3,6 @@ import { IconEye, IconEyeOff, IconLock, IconMail } from '@tabler/icons-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { Button } from '../../design/Button';
-import { Eyebrow } from '../../design/Eyebrow';
 import { Field } from '../../design/Field';
 import { Heading } from '../../design/Heading';
 import { Icon } from '../../design/Icon';
@@ -11,6 +10,7 @@ import { IndustrialGlobe } from '../../design/IndustrialGlobe';
 import { ApiError, toUserMessage } from '../../lib/api/errors';
 import { signIn } from '../../lib/auth/session';
 import { login } from './api';
+import maintelicLogo from '../../assets/maintelic-logo.png';
 import refineryBackdrop from '../../assets/refinery-night.png';
 import './login.css';
 
@@ -111,9 +111,13 @@ export default function LoginPage() {
         <div className="relative z-10 mx-auto w-full max-w-[440px] lg:mx-0 lg:order-1">
           <div className="login-card rounded-card px-6 py-8 sm:px-9 sm:py-10">
             <header className="flex flex-col gap-4">
-              <Eyebrow tone="mist" size="label" className="login-reveal">
-                Industrial Maintenance
-              </Eyebrow>
+              <img
+                src={maintelicLogo}
+                alt="Maintelic"
+                width={2048}
+                height={682}
+                className="login-reveal -ml-1 h-auto w-[min(100%,14.58rem)] object-contain"
+              />
 
               <Heading
                 level={1}
