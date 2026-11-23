@@ -11,6 +11,7 @@ describe('assertValidWorkOrderTransition', () => {
       WorkOrderStatus.CANCELLED,
     ],
     [WorkOrderStatus.ASSIGNED]: [
+      WorkOrderStatus.OPEN,
       WorkOrderStatus.IN_PROGRESS,
       WorkOrderStatus.CANCELLED,
     ],

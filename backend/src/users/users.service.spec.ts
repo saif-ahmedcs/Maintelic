@@ -1,6 +1,10 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { RequestUser } from '../auth/interfaces/request-user.interface';
+import {
+  WorkOrder,
+  WorkOrderStatus,
+} from '../work-orders/entities/work-order.entity';
 import { RoleName } from './entities/role.entity';
 import { UsersService } from './users.service';
 
@@ -54,7 +58,10 @@ describe('UsersService', () => {
       findOne: jest.fn(),
       create: jest.fn((_entity, plain) => plain),
       save: jest.fn(async (entity) => entity),
-      find: jest.fn(),
+      // Entity-aware default: no work orders to release.
+      find: jest.fn(async (entity: unknown) =>
+        entity === WorkOrder ? [] : undefined,
+      ),
       createQueryBuilder: jest.fn(),
       getRepository: jest.fn(() => refreshTokenRepo),
     };
@@ -548,6 +555,220 @@ describe('UsersService', () => {
       const [, params] = auditService.record.mock.calls[0];
       expect(JSON.stringify(params)).not.toContain(result.temporaryPassword);
       expect(JSON.stringify(params)).not.toContain(result.user.passwordHash);
+    });
+  });
+
+  describe('work order release', () => {
+    const technicianRole = { id: 'role-tech', name: RoleName.TECHNICIAN };
+    let assigned: any;
+    let inProgress: any;
+    let blocked: any;
+
+    function mockFind(roles: unknown[], workOrders: unknown[]) {
+      manager.find.mockImplementation(async (entity: unknown) =>
+        entity === WorkOrder ? workOrders : roles,
+      );
+    }
+
+    beforeEach(() => {
+      assigned = {
+        id: 'wo-assigned',
+        status: WorkOrderStatus.ASSIGNED,
+        assignedToUserId: 'user-1',
+        assignedAt: new Date(),
+      };
+      inProgress = {
+        id: 'wo-progress',
+        status: WorkOrderStatus.IN_PROGRESS,
+        assignedToUserId: 'user-1',
+        assignedAt: new Date(),
+      };
+      blocked = {
+        id: 'wo-blocked',
+        status: WorkOrderStatus.BLOCKED,
+        assignedToUserId: 'user-1',
+        assignedAt: new Date(),
+      };
+      manager.findOne.mockResolvedValue({
+        id: 'user-1',
+        name: 'Tech',
+        isActive: true,
+        roles: [technicianRole],
+      });
+    });
+
+    it('locks the user row FOR UPDATE (users table only) before changing it', async () => {
+      await service.updateProfile('user-1', { active: false } as any, actor);
+
+      expect(manager.findOne).toHaveBeenCalledWith(expect.anything(), {
+        where: { id: 'user-1' },
+        lock: { mode: 'pessimistic_write', tables: ['users'] },
+      });
+    });
+
+    it('on deactivation, returns ASSIGNED to OPEN and unassigns IN_PROGRESS/BLOCKED keeping their status', async () => {
+      mockFind([], [assigned, inProgress, blocked]);
+
+      await service.updateProfile('user-1', { active: false } as any, actor);
+
+      expect(assigned).toMatchObject({
+        status: WorkOrderStatus.OPEN,
+        assignedToUserId: null,
+        assignedAt: null,
+      });
+      expect(inProgress).toMatchObject({
+        status: WorkOrderStatus.IN_PROGRESS,
+        assignedToUserId: null,
+      });
+      expect(blocked).toMatchObject({
+        status: WorkOrderStatus.BLOCKED,
+        assignedToUserId: null,
+      });
+      expect(manager.save).toHaveBeenCalledWith(assigned);
+      expect(manager.save).toHaveBeenCalledWith(inProgress);
+      expect(manager.save).toHaveBeenCalledWith(blocked);
+    });
+
+    it("selects only the deactivated user's non-terminal work orders, under a write lock", async () => {
+      await service.updateProfile('user-1', { active: false } as any, actor);
+
+      const call = manager.find.mock.calls.find(([e]) => e === WorkOrder)!;
+      const options = call[1];
+      expect(options.where.assignedToUserId).toBe('user-1');
+      const statuses = options.where.status._value;
+      expect(statuses).toEqual([
+        WorkOrderStatus.OPEN,
+        WorkOrderStatus.ASSIGNED,
+        WorkOrderStatus.IN_PROGRESS,
+        WorkOrderStatus.BLOCKED,
+      ]);
+      expect(options.lock).toEqual({ mode: 'pessimistic_write' });
+    });
+
+    it('writes one UNASSIGN audit entry per released work order', async () => {
+      mockFind([], [assigned, inProgress]);
+
+      await service.updateProfile('user-1', { active: false } as any, actor);
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({
+          actorUserId: 'actor-1',
+          entityType: 'WorkOrder',
+          entityId: 'wo-assigned',
+          action: 'UNASSIGN',
+          source: 'user-deactivation',
+          before: {
+            status: WorkOrderStatus.ASSIGNED,
+            assignedToUserId: 'user-1',
+          },
+          after: { status: WorkOrderStatus.OPEN, assignedToUserId: null },
+        }),
+      );
+      expect(auditService.record).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({
+          entityId: 'wo-progress',
+          action: 'UNASSIGN',
+          after: {
+            status: WorkOrderStatus.IN_PROGRESS,
+            assignedToUserId: null,
+          },
+        }),
+      );
+      // user UPDATE + two UNASSIGN
+      expect(auditService.record).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not release anything on a rename, a no-op or a reactivation', async () => {
+      mockFind([], [assigned]);
+      await service.updateProfile('user-1', { name: 'New' } as any, actor);
+
+      const inactiveUser = () => ({
+        id: 'user-1',
+        name: 'Tech',
+        isActive: false,
+        roles: [technicianRole],
+      });
+      manager.findOne.mockResolvedValueOnce(inactiveUser());
+      await service.updateProfile('user-1', { active: true } as any, actor);
+      // already inactive: deactivating again is a no-op
+      manager.findOne.mockResolvedValueOnce(inactiveUser());
+      await service.updateProfile('user-1', { active: false } as any, actor);
+
+      expect(assigned.assignedToUserId).toBe('user-1');
+      expect(manager.find).not.toHaveBeenCalledWith(
+        WorkOrder,
+        expect.anything(),
+      );
+    });
+
+    it('does not release when the last-admin guard rejects the deactivation', async () => {
+      manager.findOne.mockResolvedValue({
+        id: 'admin-1',
+        name: 'Admin',
+        isActive: true,
+        roles: [adminRole],
+      });
+      mockCountQuery(0);
+
+      await expect(
+        service.updateProfile('admin-1', { active: false } as any, actor),
+      ).rejects.toThrow(ConflictException);
+      expect(manager.find).not.toHaveBeenCalledWith(
+        WorkOrder,
+        expect.anything(),
+      );
+    });
+
+    it('propagates a release failure so the deactivation rolls back', async () => {
+      mockFind([], [assigned]);
+      auditService.record
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new Error('audit down'));
+
+      await expect(
+        service.updateProfile('user-1', { active: false } as any, actor),
+      ).rejects.toThrow('audit down');
+    });
+
+    it('releases work orders when a role change leaves no eligible role', async () => {
+      mockFind([viewerRole], [assigned, inProgress]);
+
+      await service.updateRoles(
+        'user-1',
+        { roles: [RoleName.VIEWER] } as any,
+        actor,
+      );
+
+      expect(assigned).toMatchObject({
+        status: WorkOrderStatus.OPEN,
+        assignedToUserId: null,
+      });
+      expect(inProgress.assignedToUserId).toBeNull();
+      expect(auditService.record).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({
+          action: 'UNASSIGN',
+          source: 'user-role-change',
+        }),
+      );
+    });
+
+    it('keeps work orders when the new role set still includes an eligible role', async () => {
+      mockFind([supervisorRole, viewerRole], [assigned]);
+
+      await service.updateRoles(
+        'user-1',
+        { roles: [RoleName.SUPERVISOR, RoleName.VIEWER] } as any,
+        actor,
+      );
+
+      expect(assigned.assignedToUserId).toBe('user-1');
+      expect(manager.find).not.toHaveBeenCalledWith(
+        WorkOrder,
+        expect.anything(),
+      );
     });
   });
 });

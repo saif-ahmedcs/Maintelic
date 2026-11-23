@@ -7,6 +7,7 @@ import { Asset, AssetStatus } from '../assets/entities/asset.entity';
 import { RequestUser } from '../auth/interfaces/request-user.interface';
 import { MaintenancePlan } from '../maintenance-plans/entities/maintenance-plan.entity';
 import { RoleName } from '../users/entities/role.entity';
+import { User } from '../users/entities/user.entity';
 import { WorkOrder, WorkOrderStatus } from './entities/work-order.entity';
 import { WorkOrderPart } from './entities/work-order-part.entity';
 import { WorkOrdersService } from './work-orders.service';
@@ -43,8 +44,21 @@ describe('WorkOrdersService.complete', () => {
   let workOrder: WorkOrder;
   let asset: Asset;
   let plan: MaintenancePlan;
+  let users: Record<string, User | undefined>;
+
+  const makeUser = (id: string, roles: RoleName[], isActive = true): User =>
+    ({
+      id,
+      isActive,
+      roles: roles.map((name) => ({ id: `role-${name}`, name })),
+    }) as unknown as User;
 
   beforeEach(() => {
+    users = {
+      'tech-1': makeUser('tech-1', [RoleName.TECHNICIAN]),
+      'tech-2': makeUser('tech-2', [RoleName.TECHNICIAN]),
+      'super-1': makeUser('super-1', [RoleName.SUPERVISOR]),
+    };
     workOrder = {
       id: 'wo-1',
       assetId: 'asset-1',
@@ -77,8 +91,9 @@ describe('WorkOrdersService.complete', () => {
       createQueryBuilder: jest.fn((entity: unknown) =>
         entity === Asset ? assetLockQb : lockQb,
       ),
-      findOne: jest.fn(async (entity: unknown) => {
+      findOne: jest.fn(async (entity: unknown, options?: any) => {
         if (entity === MaintenancePlan) return plan;
+        if (entity === User) return users[options?.where?.id] ?? null;
         return null;
       }),
       findOneBy: jest.fn(async () => null),
@@ -493,6 +508,177 @@ describe('WorkOrdersService.complete', () => {
         ConflictException,
       );
     });
+  });
+
+  describe('assign target eligibility', () => {
+    beforeEach(() => {
+      workOrder.status = WorkOrderStatus.OPEN;
+      workOrder.assignedToUserId = null;
+    });
+
+    it('throws NotFoundException for a nonexistent target user and writes nothing', async () => {
+      await expect(
+        service.assign('wo-1', { assignedToUserId: 'ghost' }, supervisor),
+      ).rejects.toThrow(NotFoundException);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(auditService.record).not.toHaveBeenCalled();
+    });
+
+    it('rejects a deactivated target with 409', async () => {
+      users['tech-2'] = makeUser('tech-2', [RoleName.TECHNICIAN], false);
+
+      await expect(
+        service.assign('wo-1', { assignedToUserId: 'tech-2' }, supervisor),
+      ).rejects.toThrow(/deactivated/);
+      await expect(
+        service.assign('wo-1', { assignedToUserId: 'tech-2' }, supervisor),
+      ).rejects.toThrow(ConflictException);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(workOrder.status).toBe(WorkOrderStatus.OPEN);
+    });
+
+    it('rejects a VIEWER-only target with 409', async () => {
+      users['viewer-1'] = makeUser('viewer-1', [RoleName.VIEWER]);
+
+      await expect(
+        service.assign('wo-1', { assignedToUserId: 'viewer-1' }, supervisor),
+      ).rejects.toThrow(ConflictException);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(auditService.record).not.toHaveBeenCalled();
+    });
+
+    it('rejects a target with no roles at all', async () => {
+      users['norole-1'] = makeUser('norole-1', []);
+
+      await expect(
+        service.assign('wo-1', { assignedToUserId: 'norole-1' }, supervisor),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it.each([RoleName.ADMIN, RoleName.SUPERVISOR, RoleName.TECHNICIAN])(
+      'accepts an active %s target',
+      async (role) => {
+        users['target'] = makeUser('target', [RoleName.VIEWER, role]);
+
+        await expect(
+          service.assign('wo-1', { assignedToUserId: 'target' }, supervisor),
+        ).resolves.toMatchObject({
+          status: WorkOrderStatus.ASSIGNED,
+          assignedToUserId: 'target',
+        });
+      },
+    );
+
+    it('validates the caller as the target on self-assign too', async () => {
+      users['tech-1'] = makeUser('tech-1', [RoleName.TECHNICIAN], false);
+
+      await expect(service.assign('wo-1', {}, technician)).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('keeps the 403 for a technician assigning to someone else, before any target check', async () => {
+      await expect(
+        service.assign('wo-1', { assignedToUserId: 'ghost' }, technician),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('locks the target user row (shared, users table only) BEFORE the work order', async () => {
+      await service.assign('wo-1', { assignedToUserId: 'tech-2' }, supervisor);
+
+      expect(manager.findOne).toHaveBeenCalledWith(User, {
+        where: { id: 'tech-2' },
+        lock: { mode: 'pessimistic_read', tables: ['users'] },
+      });
+      const userLock = manager.findOne.mock.invocationCallOrder[0];
+      const woLock = lockQb.getOne.mock.invocationCallOrder[0];
+      expect(userLock).toBeLessThan(woLock);
+    });
+
+    it('records the new assignment in the audit log', async () => {
+      await service.assign('wo-1', { assignedToUserId: 'tech-2' }, supervisor);
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({
+          action: 'ASSIGN',
+          before: { status: WorkOrderStatus.OPEN, assignedToUserId: null },
+          after: {
+            status: WorkOrderStatus.ASSIGNED,
+            assignedToUserId: 'tech-2',
+          },
+        }),
+      );
+    });
+  });
+
+  describe('reassigning started work', () => {
+    it.each([WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.BLOCKED])(
+      'lets a supervisor reassign a %s work order, keeping its status',
+      async (status) => {
+        workOrder.status = status;
+        workOrder.assignedToUserId = null; // released on deactivation
+
+        const result = await service.assign(
+          'wo-1',
+          { assignedToUserId: 'tech-2' },
+          supervisor,
+        );
+
+        expect(result).toMatchObject({
+          status,
+          assignedToUserId: 'tech-2',
+        });
+        expect(auditService.record).toHaveBeenCalledWith(
+          manager,
+          expect.objectContaining({
+            action: 'ASSIGN',
+            before: { status, assignedToUserId: null },
+            after: { status, assignedToUserId: 'tech-2' },
+          }),
+        );
+      },
+    );
+
+    it('lets an admin take over an IN_PROGRESS work order owned by someone else', async () => {
+      const admin: RequestUser = {
+        id: 'admin-1',
+        email: 'admin@example.com',
+        roles: [RoleName.ADMIN],
+      };
+      users['admin-1'] = makeUser('admin-1', [RoleName.ADMIN]);
+      workOrder.status = WorkOrderStatus.IN_PROGRESS;
+      workOrder.assignedToUserId = 'tech-2';
+
+      await expect(service.assign('wo-1', {}, admin)).resolves.toMatchObject({
+        status: WorkOrderStatus.IN_PROGRESS,
+        assignedToUserId: 'admin-1',
+      });
+    });
+
+    it.each([WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.BLOCKED])(
+      'still rejects a technician reassigning a %s work order',
+      async (status) => {
+        workOrder.status = status;
+        workOrder.assignedToUserId = null;
+
+        await expect(service.assign('wo-1', {}, technician)).rejects.toThrow(
+          ConflictException,
+        );
+        expect(manager.save).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([WorkOrderStatus.COMPLETED, WorkOrderStatus.CANCELLED])(
+      'still rejects reassigning a %s work order, even for a supervisor',
+      async (status) => {
+        workOrder.status = status;
+
+        await expect(
+          service.assign('wo-1', { assignedToUserId: 'tech-2' }, supervisor),
+        ).rejects.toThrow(ConflictException);
+      },
+    );
   });
 
   describe('block', () => {

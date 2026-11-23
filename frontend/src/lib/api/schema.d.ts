@@ -178,7 +178,7 @@ export interface paths {
     head?: never;
     /**
      * Update a user's name and/or active state (ADMIN)
-     * @description Deactivating revokes all of the user’s refresh tokens. Deactivating the last active ADMIN returns 409.
+     * @description Deactivating revokes all of the user’s refresh tokens and releases their open work orders: ASSIGNED ones return to OPEN, IN_PROGRESS and BLOCKED ones lose their assignee so an ADMIN or SUPERVISOR can reassign them. Deactivating the last active ADMIN returns 409.
      */
     patch: operations['UsersController_update'];
     trace?: never;
@@ -213,7 +213,7 @@ export interface paths {
     get?: never;
     /**
      * Replace a user's role set (ADMIN)
-     * @description Removing ADMIN from the last active ADMIN returns 409.
+     * @description Removing ADMIN from the last active ADMIN returns 409. If the new role set has none of ADMIN, SUPERVISOR or TECHNICIAN, the user’s open work orders are released as on deactivation.
      */
     put: operations['UsersController_updateRoles'];
     post?: never;
@@ -649,7 +649,10 @@ export interface paths {
     delete?: never;
     options?: never;
     head?: never;
-    /** Assign a work order to self or another user (OPEN/ASSIGNED only; ADMIN, SUPERVISOR, TECHNICIAN) */
+    /**
+     * Assign a work order to self or another user (OPEN/ASSIGNED; ADMIN and SUPERVISOR can also reassign IN_PROGRESS/BLOCKED)
+     * @description The assignee must exist, be active and hold an ADMIN, SUPERVISOR or TECHNICIAN role. Reassigning an IN_PROGRESS or BLOCKED work order keeps its status.
+     */
     patch: operations['WorkOrdersController_assign'];
     trace?: never;
   };
@@ -1144,7 +1147,7 @@ export interface components {
       maintenancePlanId?: string;
     };
     AssignWorkOrderDto: {
-      /** @description Defaults to the caller if omitted */
+      /** @description Defaults to the caller if omitted. Must be an active user holding ADMIN, SUPERVISOR or TECHNICIAN. */
       assignedToUserId?: string;
     };
     BlockWorkOrderDto: {
@@ -2643,7 +2646,14 @@ export interface operations {
           'application/json': components['schemas']['WorkOrderResponseDto'];
         };
       };
-      /** @description Work order is not in a status that can be assigned */
+      /** @description Work order or assignee does not exist */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Work order is not in a status that can be assigned, or the assignee is deactivated or has no eligible role */
       409: {
         headers: {
           [name: string]: unknown;

@@ -12,6 +12,7 @@ import {
 import {
   ApiBearerAuth,
   ApiConflictResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -83,11 +84,18 @@ export class WorkOrdersController {
   @Roles(RoleName.ADMIN, RoleName.SUPERVISOR, RoleName.TECHNICIAN)
   @ApiOperation({
     summary:
-      'Assign a work order to self or another user (OPEN/ASSIGNED only; ADMIN, SUPERVISOR, TECHNICIAN)',
+      'Assign a work order to self or another user (OPEN/ASSIGNED; ADMIN and SUPERVISOR can also reassign IN_PROGRESS/BLOCKED)',
+    description:
+      'The assignee must exist, be active and hold an ADMIN, SUPERVISOR or TECHNICIAN role. ' +
+      'Reassigning an IN_PROGRESS or BLOCKED work order keeps its status.',
   })
   @ApiOkResponse({ type: WorkOrderResponseDto })
+  @ApiNotFoundResponse({
+    description: 'Work order or assignee does not exist',
+  })
   @ApiConflictResponse({
-    description: 'Work order is not in a status that can be assigned',
+    description:
+      'Work order is not in a status that can be assigned, or the assignee is deactivated or has no eligible role',
   })
   async assign(
     @Param('id', ParseUUIDPipe) id: string,

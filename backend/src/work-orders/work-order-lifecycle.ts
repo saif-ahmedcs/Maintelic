@@ -11,6 +11,7 @@ export const ACTIVE_WORK_ORDER_STATUSES: WorkOrderStatus[] = [
 const ALLOWED_TRANSITIONS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
   [WorkOrderStatus.OPEN]: [WorkOrderStatus.ASSIGNED, WorkOrderStatus.CANCELLED],
   [WorkOrderStatus.ASSIGNED]: [
+    WorkOrderStatus.OPEN,
     WorkOrderStatus.IN_PROGRESS,
     WorkOrderStatus.CANCELLED,
   ],

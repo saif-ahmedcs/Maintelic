@@ -15,8 +15,17 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 import { UserQueryDto } from './dto/user-query.dto';
+import {
+  WorkOrder,
+  WorkOrderStatus,
+} from '../work-orders/entities/work-order.entity';
+import {
+  ACTIVE_WORK_ORDER_STATUSES,
+  assertValidWorkOrderTransition,
+} from '../work-orders/work-order-lifecycle';
 import { Role, RoleName } from './entities/role.entity';
 import { User } from './entities/user.entity';
+import { hasWorkOrderAssigneeRole } from './work-order-eligibility';
 
 const BCRYPT_SALT_ROUNDS = 10;
 
@@ -151,7 +160,7 @@ export class UsersService {
     actor: RequestUser,
   ): Promise<UpdatedProfile> {
     return this.dataSource.transaction(async (manager) => {
-      const user = await manager.findOne(User, { where: { id } });
+      const user = await this.findUserForUpdate(manager, id);
       if (!user) {
         throw new NotFoundException(`User ${id} not found`);
       }
@@ -179,6 +188,15 @@ export class UsersService {
         after: { name: saved.name, isActive: saved.isActive },
         source: 'manual',
       });
+
+      if (willDeactivate) {
+        await this.releaseWorkOrders(
+          manager,
+          saved.id,
+          actor,
+          'user-deactivation',
+        );
+      }
 
       return { user: saved, justDeactivated: willDeactivate };
     });
@@ -231,7 +249,7 @@ export class UsersService {
     actor: RequestUser,
   ): Promise<User> {
     return this.dataSource.transaction(async (manager) => {
-      const user = await manager.findOne(User, { where: { id } });
+      const user = await this.findUserForUpdate(manager, id);
       if (!user) {
         throw new NotFoundException(`User ${id} not found`);
       }
@@ -259,8 +277,73 @@ export class UsersService {
         source: 'manual',
       });
 
+      if (!hasWorkOrderAssigneeRole(newRoles)) {
+        await this.releaseWorkOrders(
+          manager,
+          saved.id,
+          actor,
+          'user-role-change',
+        );
+      }
+
       return saved;
     });
+  }
+
+  private findUserForUpdate(
+    manager: EntityManager,
+    id: string,
+  ): Promise<User | null> {
+    return manager.findOne(User, {
+      where: { id },
+      lock: { mode: 'pessimistic_write', tables: ['users'] },
+    });
+  }
+
+  private async releaseWorkOrders(
+    manager: EntityManager,
+    userId: string,
+    actor: RequestUser,
+    source: 'user-deactivation' | 'user-role-change',
+  ): Promise<number> {
+    const workOrders = await manager.find(WorkOrder, {
+      where: {
+        assignedToUserId: userId,
+        status: In(ACTIVE_WORK_ORDER_STATUSES),
+      },
+      order: { openedAt: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    for (const workOrder of workOrders) {
+      const before = {
+        status: workOrder.status,
+        assignedToUserId: workOrder.assignedToUserId,
+      };
+
+      if (workOrder.status === WorkOrderStatus.ASSIGNED) {
+        assertValidWorkOrderTransition(workOrder.status, WorkOrderStatus.OPEN);
+        workOrder.status = WorkOrderStatus.OPEN;
+      }
+      workOrder.assignedToUserId = null;
+      workOrder.assignedAt = null;
+      const saved = await manager.save(workOrder);
+
+      await this.auditService.record(manager, {
+        actorUserId: actor.id,
+        entityType: 'WorkOrder',
+        entityId: saved.id,
+        action: 'UNASSIGN',
+        before,
+        after: {
+          status: saved.status,
+          assignedToUserId: saved.assignedToUserId,
+        },
+        source,
+      });
+    }
+
+    return workOrders.length;
   }
 
   private async resolveRoles(

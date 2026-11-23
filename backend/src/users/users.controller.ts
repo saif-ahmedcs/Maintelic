@@ -75,7 +75,10 @@ export class UsersController {
   @ApiOperation({
     summary: "Update a user's name and/or active state (ADMIN)",
     description:
-      'Deactivating revokes all of the user\u2019s refresh tokens. ' +
+      'Deactivating revokes all of the user\u2019s refresh tokens and ' +
+      'releases their open work orders: ASSIGNED ones return to OPEN, ' +
+      'IN_PROGRESS and BLOCKED ones lose their assignee so an ADMIN or ' +
+      'SUPERVISOR can reassign them. ' +
       'Deactivating the last active ADMIN returns 409.',
   })
   @ApiOkResponse({ type: UserResponseDto })
@@ -120,7 +123,10 @@ export class UsersController {
   @Put(':id/roles')
   @ApiOperation({
     summary: "Replace a user's role set (ADMIN)",
-    description: 'Removing ADMIN from the last active ADMIN returns 409.',
+    description:
+      'Removing ADMIN from the last active ADMIN returns 409. If the new ' +
+      'role set has none of ADMIN, SUPERVISOR or TECHNICIAN, the user’s ' +
+      'open work orders are released as on deactivation.',
   })
   @ApiOkResponse({ type: UserResponseDto })
   async updateRoles(

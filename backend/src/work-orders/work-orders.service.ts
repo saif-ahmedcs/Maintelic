@@ -17,6 +17,8 @@ import { MaintenancePlan } from '../maintenance-plans/entities/maintenance-plan.
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RoleName } from '../users/entities/role.entity';
+import { User } from '../users/entities/user.entity';
+import { hasWorkOrderAssigneeRole } from '../users/work-order-eligibility';
 import { AssignWorkOrderDto } from './dto/assign-work-order.dto';
 import { BlockWorkOrderDto } from './dto/block-work-order.dto';
 import { CompleteWorkOrderDto } from './dto/complete-work-order.dto';
@@ -30,6 +32,17 @@ import {
   WorkOrderStatus,
 } from './entities/work-order.entity';
 import { assertValidWorkOrderTransition } from './work-order-lifecycle';
+
+const ASSIGNABLE_STATUSES: WorkOrderStatus[] = [
+  WorkOrderStatus.OPEN,
+  WorkOrderStatus.ASSIGNED,
+];
+
+const PRIVILEGED_ASSIGNABLE_STATUSES: WorkOrderStatus[] = [
+  ...ASSIGNABLE_STATUSES,
+  WorkOrderStatus.IN_PROGRESS,
+  WorkOrderStatus.BLOCKED,
+];
 
 const SORTABLE_FIELDS = [
   'workOrder.openedAt',
@@ -207,19 +220,26 @@ export class WorkOrdersService {
     actor: RequestUser,
   ): Promise<WorkOrder> {
     return this.dataSource.transaction(async (manager) => {
+      const targetUserId = dto.assignedToUserId ?? actor.id;
+
+      const targetUser = await manager.findOne(User, {
+        where: { id: targetUserId },
+        lock: { mode: 'pessimistic_read', tables: ['users'] },
+      });
+
       const workOrder = await this.lockWorkOrder(manager, id);
 
-      const targetUserId = dto.assignedToUserId ?? actor.id;
-      if (targetUserId !== actor.id && !this.isPrivileged(actor)) {
+      const privileged = this.isPrivileged(actor);
+      if (targetUserId !== actor.id && !privileged) {
         throw new ForbiddenException(
           'Only admins or supervisors can assign a work order to someone else',
         );
       }
 
-      if (
-        workOrder.status !== WorkOrderStatus.OPEN &&
-        workOrder.status !== WorkOrderStatus.ASSIGNED
-      ) {
+      const assignableStatuses = privileged
+        ? PRIVILEGED_ASSIGNABLE_STATUSES
+        : ASSIGNABLE_STATUSES;
+      if (!assignableStatuses.includes(workOrder.status)) {
         throw new ConflictException(
           `Cannot assign a work order in status ${workOrder.status}`,
         );
@@ -228,10 +248,24 @@ export class WorkOrdersService {
       if (
         workOrder.assignedToUserId &&
         workOrder.assignedToUserId !== actor.id &&
-        !this.isPrivileged(actor)
+        !privileged
       ) {
         throw new ForbiddenException(
           'Work order is already assigned to another user',
+        );
+      }
+
+      if (!targetUser) {
+        throw new NotFoundException(`User ${targetUserId} not found`);
+      }
+      if (!targetUser.isActive) {
+        throw new ConflictException(
+          `User ${targetUserId} is deactivated and cannot be assigned work orders`,
+        );
+      }
+      if (!hasWorkOrderAssigneeRole(targetUser.roles)) {
+        throw new ConflictException(
+          `User ${targetUserId} has no role that can work on work orders (requires ADMIN, SUPERVISOR or TECHNICIAN)`,
         );
       }
 
@@ -246,6 +280,11 @@ export class WorkOrdersService {
           WorkOrderStatus.ASSIGNED,
         );
         workOrder.status = WorkOrderStatus.ASSIGNED;
+      }
+      if (
+        before.status === WorkOrderStatus.OPEN ||
+        workOrder.assignedToUserId !== targetUserId
+      ) {
         workOrder.assignedAt = new Date();
       }
       workOrder.assignedToUserId = targetUserId;
