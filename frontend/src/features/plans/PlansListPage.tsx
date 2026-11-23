@@ -80,10 +80,6 @@ export default function PlansListPage() {
       view === 'due' ? listDuePlans({ page }) : listMaintenancePlans({ page }),
   });
 
-  // Plan responses only carry assetId (no nested asset), so the asset
-  // catalog is fetched once and used both for the create-form Select and
-  // for resolving each row's display tag — same assumption AssetsListPage
-  // / CreateAssetDialog make about catalog size (limit: 100).
   const assetsQuery = useQuery({
     queryKey: ['assets', 'list', { limit: 100 }],
     queryFn: () => listAssets({ limit: 100 }),
@@ -91,10 +87,12 @@ export default function PlansListPage() {
 
   const assetOptions = useMemo(
     () =>
-      (assetsQuery.data?.data ?? []).map((asset) => ({
-        value: asset.id,
-        label: asset.tag,
-      })),
+      (assetsQuery.data?.data ?? [])
+        .filter((asset) => asset.status !== 'DECOMMISSIONED')
+        .map((asset) => ({
+          value: asset.id,
+          label: asset.tag,
+        })),
     [assetsQuery.data],
   );
 

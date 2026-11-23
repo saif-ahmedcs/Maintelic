@@ -294,6 +294,45 @@ describe('ScheduledChecksService', () => {
         expect(auditService.record).not.toHaveBeenCalled();
       });
 
+      it('raises no OVERDUE_MAINTENANCE alert for a DECOMMISSIONED asset, even with a stale plan snapshot (BL-03)', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(false);
+        txState.asset = { id: 'asset-1', status: AssetStatus.DECOMMISSIONED };
+
+        await service.checkOverdueMaintenance();
+
+        expect(notificationsService.record).not.toHaveBeenCalled();
+        expect(txManager.save).not.toHaveBeenCalled();
+      });
+
+      it('raises no alert when the asset no longer exists', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(false);
+        txState.asset = null;
+
+        await service.checkOverdueMaintenance();
+
+        expect(notificationsService.record).not.toHaveBeenCalled();
+      });
+
+      it('locks the asset before the plan (same order as completion and decommissioning)', async () => {
+        maintenancePlansService.findAllDue.mockResolvedValue([plan]);
+        workOrderRepo.exists.mockResolvedValue(false);
+        notificationsService.hasActiveNotification.mockResolvedValue(false);
+
+        await service.checkOverdueMaintenance();
+
+        expect(txManager.findOne).toHaveBeenCalledWith(
+          Asset,
+          expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+        );
+        expect(txManager.findOne.mock.invocationCallOrder[0]).toBeLessThan(
+          txManager.createQueryBuilder.mock.invocationCallOrder[0],
+        );
+      });
+
       it('does not regenerate when a work order was already raised for this due cycle (e.g. it was cancelled)', async () => {
         maintenancePlansService.findAllDue.mockResolvedValue([plan]);
         workOrderRepo.exists.mockResolvedValue(false);

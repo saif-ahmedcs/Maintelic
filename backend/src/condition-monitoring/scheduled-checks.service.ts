@@ -89,6 +89,14 @@ export class ScheduledChecksService {
 
       const createdWorkOrder = await this.dataSource.transaction(
         async (manager) => {
+          const asset = await manager.findOne(Asset, {
+            where: { id: plan.assetId },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (!asset || asset.status === AssetStatus.DECOMMISSIONED) {
+            return false;
+          }
+
           const current = await manager
             .createQueryBuilder(MaintenancePlan, 'plan')
             .setLock('pessimistic_write')

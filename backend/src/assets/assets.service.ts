@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AssetType } from '../asset-types/entities/asset-type.entity';
 import { AuditService } from '../audit/audit.service';
 import { AssetHistoryService } from '../asset-history/asset-history.service';
@@ -13,6 +13,12 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RequestUser } from '../auth/interfaces/request-user.interface';
 import { paginate, PaginatedResult } from '../common/pagination/paginate';
 import { Location } from '../locations/entities/location.entity';
+import { MaintenancePlansService } from '../maintenance-plans/maintenance-plans.service';
+import {
+  WorkOrder,
+  WorkOrderStatus,
+} from '../work-orders/entities/work-order.entity';
+import { ACTIVE_WORK_ORDER_STATUSES } from '../work-orders/work-order-lifecycle';
 import { AssetQueryDto } from './dto/asset-query.dto';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
@@ -20,6 +26,7 @@ import { UpdateAssetStatusDto } from './dto/update-asset-status.dto';
 import { Asset, AssetStatus } from './entities/asset.entity';
 
 const SORTABLE_FIELDS = ['asset.tag', 'asset.status', 'asset.criticality'];
+const DECOMMISSION_SOURCE = 'asset-decommission';
 
 @Injectable()
 export class AssetsService {
@@ -30,6 +37,7 @@ export class AssetsService {
     private readonly auditService: AuditService,
     private readonly assetHistoryService: AssetHistoryService,
     private readonly notificationsService: NotificationsService,
+    private readonly maintenancePlansService: MaintenancePlansService,
   ) {}
 
   async findAll(query: AssetQueryDto): Promise<PaginatedResult<Asset>> {
@@ -191,8 +199,10 @@ export class AssetsService {
     actor: RequestUser,
   ): Promise<Asset> {
     return this.dataSource.transaction(async (manager) => {
-      // Lock the row so concurrent writers (telemetry, work-order completion)
-      // are serialized with this status change.
+      if (dto.status === AssetStatus.DECOMMISSIONED) {
+        await this.lockActiveWorkOrders(manager, id);
+      }
+
       const asset = await manager.findOne(Asset, {
         where: { id },
         lock: { mode: 'pessimistic_write' },
@@ -245,8 +255,55 @@ export class AssetsService {
         );
       }
 
+      if (saved.status === AssetStatus.DECOMMISSIONED) {
+        await this.closeOutDecommissionedAsset(manager, saved, actor);
+      }
+
       return saved;
     });
+  }
+
+  private lockActiveWorkOrders(
+    manager: EntityManager,
+    assetId: string,
+  ): Promise<WorkOrder[]> {
+    return manager.find(WorkOrder, {
+      where: { assetId, status: In(ACTIVE_WORK_ORDER_STATUSES) },
+      order: { id: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+  }
+
+  private async closeOutDecommissionedAsset(
+    manager: EntityManager,
+    asset: Asset,
+    actor: RequestUser,
+  ): Promise<void> {
+    const openWorkOrders = await this.lockActiveWorkOrders(manager, asset.id);
+    const cancelledAt = new Date();
+    for (const workOrder of openWorkOrders) {
+      const before = { status: workOrder.status };
+      workOrder.status = WorkOrderStatus.CANCELLED;
+      workOrder.cancelledAt = cancelledAt;
+      await manager.save(workOrder);
+
+      await this.auditService.record(manager, {
+        actorUserId: actor.id,
+        entityType: 'WorkOrder',
+        entityId: workOrder.id,
+        action: 'CANCEL',
+        before,
+        after: { status: WorkOrderStatus.CANCELLED },
+        source: DECOMMISSION_SOURCE,
+      });
+    }
+
+    await this.maintenancePlansService.deactivateForAsset(
+      manager,
+      asset.id,
+      actor,
+      DECOMMISSION_SOURCE,
+    );
   }
 
   async remove(id: string, actor: RequestUser): Promise<void> {

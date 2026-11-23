@@ -14,18 +14,14 @@ import {
   WorkOrderSource,
   WorkOrderStatus,
 } from '../work-orders/entities/work-order.entity';
+import { ACTIVE_WORK_ORDER_STATUSES } from '../work-orders/work-order-lifecycle';
 import {
   CONSECUTIVE_HOT_READINGS_REQUIRED,
   HOT_TEMPERATURE_THRESHOLD_C,
   tripsHotTemperatureRule,
 } from './hot-temperature.rule';
 
-export const ACTIVE_WORK_ORDER_STATUSES = [
-  WorkOrderStatus.OPEN,
-  WorkOrderStatus.ASSIGNED,
-  WorkOrderStatus.IN_PROGRESS,
-  WorkOrderStatus.BLOCKED,
-];
+export { ACTIVE_WORK_ORDER_STATUSES };
 
 const AUTO_SOURCE = 'auto:condition-monitoring';
 

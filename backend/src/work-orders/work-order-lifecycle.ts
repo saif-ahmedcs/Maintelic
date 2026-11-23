@@ -1,6 +1,13 @@
 import { ConflictException } from '@nestjs/common';
 import { WorkOrderStatus } from './entities/work-order.entity';
 
+export const ACTIVE_WORK_ORDER_STATUSES: WorkOrderStatus[] = [
+  WorkOrderStatus.OPEN,
+  WorkOrderStatus.ASSIGNED,
+  WorkOrderStatus.IN_PROGRESS,
+  WorkOrderStatus.BLOCKED,
+];
+
 const ALLOWED_TRANSITIONS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
   [WorkOrderStatus.OPEN]: [WorkOrderStatus.ASSIGNED, WorkOrderStatus.CANCELLED],
   [WorkOrderStatus.ASSIGNED]: [

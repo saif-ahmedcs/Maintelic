@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { Asset } from '../assets/entities/asset.entity';
+import { DataSource, EntityManager, Repository } from 'typeorm';
+import { Asset, AssetStatus } from '../assets/entities/asset.entity';
 import { AuditService } from '../audit/audit.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -48,7 +52,11 @@ export class MaintenancePlansService {
     const { page, limit } = query;
     const qb = this.planRepo
       .createQueryBuilder('plan')
+      .innerJoin('plan.asset', 'asset')
       .where('plan.active = :active', { active: true })
+      .andWhere('asset.status <> :decommissioned', {
+        decommissioned: AssetStatus.DECOMMISSIONED,
+      })
       .andWhere('plan.nextDueAt <= :now', { now: new Date() })
       .orderBy('plan.nextDueAt', 'ASC')
       .skip((page - 1) * limit)
@@ -64,7 +72,11 @@ export class MaintenancePlansService {
   async findAllDue(): Promise<MaintenancePlan[]> {
     return this.planRepo
       .createQueryBuilder('plan')
+      .innerJoin('plan.asset', 'asset')
       .where('plan.active = :active', { active: true })
+      .andWhere('asset.status <> :decommissioned', {
+        decommissioned: AssetStatus.DECOMMISSIONED,
+      })
       .andWhere('plan.nextDueAt <= :now', { now: new Date() })
       .orderBy('plan.nextDueAt', 'ASC')
       .getMany();
@@ -90,9 +102,17 @@ export class MaintenancePlansService {
     actor: RequestUser,
   ): Promise<MaintenancePlan> {
     return this.dataSource.transaction(async (manager) => {
-      const asset = await manager.findOneBy(Asset, { id: dto.assetId });
+      const asset = await manager.findOne(Asset, {
+        where: { id: dto.assetId },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!asset) {
         throw new NotFoundException(`Asset ${dto.assetId} not found`);
+      }
+      if (asset.status === AssetStatus.DECOMMISSIONED) {
+        throw new ConflictException(
+          `Asset ${dto.assetId} is decommissioned; maintenance plans cannot be created for it`,
+        );
       }
 
       const plan = manager.create(MaintenancePlan, {
@@ -141,6 +161,15 @@ export class MaintenancePlansService {
         throw new NotFoundException(`Maintenance plan ${id} not found`);
       }
 
+      if (dto.active === true && !plan.active) {
+        const asset = await manager.findOneBy(Asset, { id: plan.assetId });
+        if (asset?.status === AssetStatus.DECOMMISSIONED) {
+          throw new ConflictException(
+            `Asset ${plan.assetId} is decommissioned; its maintenance plans cannot be reactivated`,
+          );
+        }
+      }
+
       const before = {
         name: plan.name,
         intervalDays: plan.intervalDays,
@@ -185,6 +214,46 @@ export class MaintenancePlansService {
 
       return saved;
     });
+  }
+
+  async deactivateForAsset(
+    manager: EntityManager,
+    assetId: string,
+    actor: RequestUser | null,
+    source: string,
+  ): Promise<number> {
+    const plans = await manager.find(MaintenancePlan, {
+      where: { assetId },
+      order: { id: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    let deactivated = 0;
+    for (const plan of plans) {
+      if (plan.active) {
+        plan.active = false;
+        await manager.save(plan);
+        deactivated += 1;
+
+        await this.auditService.record(manager, {
+          actorUserId: actor?.id ?? null,
+          entityType: 'MaintenancePlan',
+          entityId: plan.id,
+          action: 'UPDATE',
+          before: { active: true },
+          after: { active: false },
+          source,
+        });
+      }
+
+      await this.notificationsService.resolveActive(
+        manager,
+        NotificationType.OVERDUE_MAINTENANCE,
+        'MaintenancePlan',
+        plan.id,
+      );
+    }
+    return deactivated;
   }
 
   async remove(id: string, actor: RequestUser): Promise<void> {

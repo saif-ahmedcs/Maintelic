@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { axe } from 'jest-axe';
 import { HttpResponse, http } from 'msw';
@@ -114,5 +115,110 @@ describe('AssetDetailPage', () => {
     await screen.findByText('No readings received for this asset yet.');
     await screen.findByText('No maintenance plans for this asset.');
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  describe('decommissioning (BL-03)', () => {
+    async function openDecommissionConfirmation(
+      user: ReturnType<typeof userEvent.setup>,
+    ) {
+      mockSession(['SUPERVISOR']);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      mockAssetDetailEndpoints(makeAsset({}));
+      renderPage();
+      await screen.findByRole('heading', { name: 'PUMP-01' });
+
+      await user.selectOptions(
+        await screen.findByLabelText('Change status'),
+        'DECOMMISSIONED',
+      );
+    }
+
+    it('asks for confirmation instead of applying Decommissioned immediately', async () => {
+      const user = userEvent.setup();
+      let patchCalls = 0;
+      server.use(
+        http.patch('/assets/asset-1/status', () => {
+          patchCalls += 1;
+          return HttpResponse.json(makeAsset({ status: 'DECOMMISSIONED' }));
+        }),
+      );
+
+      await openDecommissionConfirmation(user);
+
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Decommission this asset?',
+      });
+      expect(dialog).toHaveTextContent(/cannot be undone/i);
+      expect(dialog).toHaveTextContent(/work orders will be cancelled/i);
+      expect(patchCalls).toBe(0);
+    });
+
+    it('does not change the status when the confirmation is cancelled', async () => {
+      const user = userEvent.setup();
+      let patchCalls = 0;
+      server.use(
+        http.patch('/assets/asset-1/status', () => {
+          patchCalls += 1;
+          return HttpResponse.json(makeAsset({ status: 'DECOMMISSIONED' }));
+        }),
+      );
+
+      await openDecommissionConfirmation(user);
+      await screen.findByRole('dialog', { name: 'Decommission this asset?' });
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+      );
+      expect(patchCalls).toBe(0);
+    });
+
+    it('sends the DECOMMISSIONED status only after the user confirms', async () => {
+      const user = userEvent.setup();
+      const bodies: unknown[] = [];
+      server.use(
+        http.patch('/assets/asset-1/status', async ({ request }) => {
+          bodies.push(await request.json());
+          return HttpResponse.json(makeAsset({ status: 'DECOMMISSIONED' }));
+        }),
+      );
+
+      await openDecommissionConfirmation(user);
+      await screen.findByRole('dialog', { name: 'Decommission this asset?' });
+      await user.click(screen.getByRole('button', { name: 'Decommission' }));
+
+      await waitFor(() =>
+        expect(bodies).toEqual([{ status: 'DECOMMISSIONED' }]),
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+      );
+    });
+
+    it('applies non-destructive status changes immediately, without a dialog', async () => {
+      const user = userEvent.setup();
+      const bodies: unknown[] = [];
+      server.use(
+        http.patch('/assets/asset-1/status', async ({ request }) => {
+          bodies.push(await request.json());
+          return HttpResponse.json(makeAsset({ status: 'UNDER_MAINTENANCE' }));
+        }),
+      );
+      mockSession(['SUPERVISOR']);
+      await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+      mockAssetDetailEndpoints(makeAsset({}));
+      renderPage();
+      await screen.findByRole('heading', { name: 'PUMP-01' });
+
+      await user.selectOptions(
+        await screen.findByLabelText('Change status'),
+        'UNDER_MAINTENANCE',
+      );
+
+      await waitFor(() =>
+        expect(bodies).toEqual([{ status: 'UNDER_MAINTENANCE' }]),
+      );
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
   });
 });

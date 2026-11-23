@@ -2,6 +2,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Button } from '../../design/Button';
+import { Dialog } from '../../design/Dialog';
 import { EmptyState } from '../../design/EmptyState';
 import { ErrorState } from '../../design/ErrorState';
 import { Eyebrow } from '../../design/Eyebrow';
@@ -65,6 +66,7 @@ export default function AssetDetailPage() {
   const { user } = useSession();
   const roles = user?.roles ?? [];
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [confirmingDecommission, setConfirmingDecommission] = useState(false);
 
   const assetQuery = useQuery({
     queryKey: ['assets', 'detail', id],
@@ -84,6 +86,11 @@ export default function AssetDetailPage() {
       void queryClient.invalidateQueries({
         queryKey: ['assets', 'history', id],
       });
+      // Decommissioning cancels the asset's open work orders, deactivates its
+      // plans and resolves its alerts, so refresh everything that shows them.
+      void queryClient.invalidateQueries({ queryKey: ['work-orders'] });
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-plans'] });
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
     onError: (error) => {
       setStatusError(
@@ -345,6 +352,12 @@ export default function AssetDetailPage() {
                   onChange={(value) => {
                     if (value === asset.status) return;
                     setStatusError(null);
+                    // Decommissioning is irreversible and closes out the
+                    // asset's work orders and plans: ask first.
+                    if (value === 'DECOMMISSIONED') {
+                      setConfirmingDecommission(true);
+                      return;
+                    }
                     statusMutation.mutate(value as AssetStatus);
                   }}
                 />
@@ -355,7 +368,8 @@ export default function AssetDetailPage() {
 
         {asset.status === 'DECOMMISSIONED' && (
           <p className="font-display text-body font-normal text-text-silver">
-            This asset is decommissioned. Its record is kept for history.
+            This asset is decommissioned. Its record is kept for history; open
+            work orders were cancelled and maintenance plans deactivated.
           </p>
         )}
 
@@ -365,6 +379,39 @@ export default function AssetDetailPage() {
           </p>
         )}
       </Surface>
+
+      <Dialog
+        open={confirmingDecommission}
+        title="Decommission this asset?"
+        onClose={() => setConfirmingDecommission(false)}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmingDecommission(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              loading={statusMutation.isPending}
+              onClick={() =>
+                statusMutation.mutate('DECOMMISSIONED', {
+                  onSettled: () => setConfirmingDecommission(false),
+                })
+              }
+            >
+              Decommission
+            </Button>
+          </>
+        }
+      >
+        <p className="font-display text-body font-normal text-text-silver">
+          {asset.tag} will be taken out of service permanently. This cannot be
+          undone: its open work orders will be cancelled, its maintenance plans
+          deactivated and their overdue alerts resolved.
+        </p>
+      </Dialog>
 
       {aiNote && (
         <Panel padding="dense" className="flex flex-col gap-1">

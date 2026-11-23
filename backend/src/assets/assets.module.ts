@@ -5,6 +5,7 @@ import { AssetsService } from './assets.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditModule } from '../audit/audit.module';
 import { AssetHistoryModule } from '../asset-history/asset-history.module';
+import { MaintenancePlansModule } from '../maintenance-plans/maintenance-plans.module';
 import { Asset } from './entities/asset.entity';
 
 @Module({
@@ -13,6 +14,7 @@ import { Asset } from './entities/asset.entity';
     AuditModule,
     AssetHistoryModule,
     NotificationsModule,
+    MaintenancePlansModule,
   ],
   controllers: [AssetsController],
   providers: [AssetsService],

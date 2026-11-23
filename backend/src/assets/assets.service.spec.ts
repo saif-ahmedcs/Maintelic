@@ -5,6 +5,10 @@ import { Location } from '../locations/entities/location.entity';
 import { RoleName } from '../users/entities/role.entity';
 import { AssetsService } from './assets.service';
 import { AssetQueryDto } from './dto/asset-query.dto';
+import {
+  WorkOrder,
+  WorkOrderStatus,
+} from '../work-orders/entities/work-order.entity';
 import { AssetStatus } from './entities/asset.entity';
 
 describe('AssetsService', () => {
@@ -16,11 +20,13 @@ describe('AssetsService', () => {
     create: jest.Mock;
     save: jest.Mock;
     remove: jest.Mock;
+    find: jest.Mock;
   };
   let dataSource: { transaction: jest.Mock };
   let auditService: { record: jest.Mock };
   let assetHistoryService: { record: jest.Mock };
   let notificationsService: { resolveActive: jest.Mock };
+  let maintenancePlansService: { deactivateForAsset: jest.Mock };
 
   const actor: RequestUser = {
     id: 'user-1',
@@ -36,11 +42,13 @@ describe('AssetsService', () => {
       create: jest.fn((_entity, plain) => plain),
       save: jest.fn(async (entity) => ({ ...entity, id: 'asset-1' })),
       remove: jest.fn(async (entity) => entity),
+      find: jest.fn(async () => []),
     };
     dataSource = { transaction: jest.fn((cb) => cb(manager)) };
     auditService = { record: jest.fn(async () => ({})) };
     assetHistoryService = { record: jest.fn(async () => ({})) };
     notificationsService = { resolveActive: jest.fn(async () => 1) };
+    maintenancePlansService = { deactivateForAsset: jest.fn(async () => 0) };
 
     service = new AssetsService(
       assetRepo as any,
@@ -48,6 +56,7 @@ describe('AssetsService', () => {
       auditService as any,
       assetHistoryService as any,
       notificationsService as any,
+      maintenancePlansService as any,
     );
   });
 
@@ -416,6 +425,164 @@ describe('AssetsService', () => {
             actor,
           ),
         ).rejects.toThrow('db down');
+      });
+    });
+
+    describe('decommissioning (BL-03)', () => {
+      const setup = (status = AssetStatus.OPERATIONAL) => {
+        manager.findOne.mockResolvedValue({ id: 'asset-1', status });
+        manager.save.mockImplementation(async (entity) => entity);
+      };
+      const decommission = () =>
+        service.updateStatus(
+          'asset-1',
+          { status: AssetStatus.DECOMMISSIONED } as any,
+          actor,
+        );
+      const openWorkOrders = () => [
+        {
+          id: 'wo-1',
+          assetId: 'asset-1',
+          status: WorkOrderStatus.OPEN,
+          source: 'AUTO',
+        },
+        {
+          id: 'wo-2',
+          assetId: 'asset-1',
+          status: WorkOrderStatus.IN_PROGRESS,
+          source: 'PLANNED',
+        },
+      ];
+
+      it('deactivates the asset plans and resolves their alerts in the same transaction', async () => {
+        setup();
+
+        await decommission();
+
+        expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+        expect(maintenancePlansService.deactivateForAsset).toHaveBeenCalledWith(
+          manager,
+          'asset-1',
+          actor,
+          'asset-decommission',
+        );
+      });
+
+      it('cancels every open work order of the asset and audits each cancellation', async () => {
+        setup();
+        manager.find.mockResolvedValue(openWorkOrders());
+
+        await decommission();
+
+        const cancelled = manager.save.mock.calls
+          .map(([entity]) => entity)
+          .filter((entity) => entity.id === 'wo-1' || entity.id === 'wo-2');
+        expect(cancelled).toHaveLength(2);
+        for (const workOrder of cancelled) {
+          expect(workOrder.status).toBe(WorkOrderStatus.CANCELLED);
+          expect(workOrder.cancelledAt).toBeInstanceOf(Date);
+        }
+        expect(auditService.record).toHaveBeenCalledWith(
+          manager,
+          expect.objectContaining({
+            entityType: 'WorkOrder',
+            entityId: 'wo-2',
+            action: 'CANCEL',
+            before: { status: WorkOrderStatus.IN_PROGRESS },
+            after: { status: WorkOrderStatus.CANCELLED },
+            source: 'asset-decommission',
+          }),
+        );
+      });
+
+      it('only targets open work orders of this asset', async () => {
+        setup();
+
+        await decommission();
+
+        expect(manager.find).toHaveBeenCalledWith(
+          WorkOrder,
+          expect.objectContaining({
+            where: expect.objectContaining({ assetId: 'asset-1' }),
+          }),
+        );
+      });
+
+      it('locks the open work orders before the asset row (same order as work-order transitions)', async () => {
+        setup();
+        manager.find.mockResolvedValue([]);
+
+        await decommission();
+
+        expect(manager.find).toHaveBeenCalledWith(
+          WorkOrder,
+          expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+        );
+        expect(manager.find.mock.invocationCallOrder[0]).toBeLessThan(
+          manager.findOne.mock.invocationCallOrder[0],
+        );
+      });
+
+      it.each([
+        AssetStatus.OPERATIONAL,
+        AssetStatus.UNDER_MAINTENANCE,
+        AssetStatus.CRITICAL,
+      ])(
+        'closes out work orders and plans when a %s asset is decommissioned',
+        async (from) => {
+          setup(from);
+          manager.find.mockResolvedValue(openWorkOrders());
+
+          await decommission();
+
+          expect(
+            maintenancePlansService.deactivateForAsset,
+          ).toHaveBeenCalledTimes(1);
+        },
+      );
+
+      it('does not touch work orders or plans for any other status change', async () => {
+        setup(AssetStatus.OPERATIONAL);
+
+        await service.updateStatus(
+          'asset-1',
+          { status: AssetStatus.UNDER_MAINTENANCE } as any,
+          actor,
+        );
+
+        expect(manager.find).not.toHaveBeenCalled();
+        expect(
+          maintenancePlansService.deactivateForAsset,
+        ).not.toHaveBeenCalled();
+      });
+
+      it('closes nothing out when the asset is already decommissioned', async () => {
+        setup(AssetStatus.DECOMMISSIONED);
+
+        await decommission();
+
+        expect(
+          maintenancePlansService.deactivateForAsset,
+        ).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+      });
+
+      it('closes nothing out when the asset does not exist', async () => {
+        manager.findOne.mockResolvedValue(null);
+
+        await expect(decommission()).rejects.toThrow(NotFoundException);
+        expect(
+          maintenancePlansService.deactivateForAsset,
+        ).not.toHaveBeenCalled();
+      });
+
+      it('propagates a plan-deactivation failure so the whole decommission rolls back', async () => {
+        setup();
+        maintenancePlansService.deactivateForAsset.mockRejectedValue(
+          new Error('db down'),
+        );
+
+        await expect(decommission()).rejects.toThrow('db down');
       });
     });
 
