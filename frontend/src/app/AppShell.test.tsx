@@ -181,3 +181,50 @@ describe('AppShell alert badge (14.4 / 14.5)', () => {
     });
   });
 });
+
+describe('AppShell dashboard background', () => {
+  it('renders one decorative background that persists across route changes', async () => {
+    const user = userEvent.setup();
+    mockSession(['TECHNICIAN']);
+    await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+    server.use(
+      http.get('/notifications', () =>
+        HttpResponse.json({
+          data: [],
+          meta: { page: 1, limit: 5, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="/" element={<p>Overview content</p>} />
+              <Route path="/assets" element={<p>Assets content</p>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    const background = container.querySelector('[data-dashboard-background]');
+    expect(background).toBeInTheDocument();
+    expect(background).toHaveAttribute('aria-hidden', 'true');
+    expect(
+      container.querySelectorAll('[data-dashboard-background]'),
+    ).toHaveLength(1);
+
+    await user.click(within(nav).getByText('ASSETS'));
+    await screen.findByText('Assets content');
+
+    expect(container.querySelector('[data-dashboard-background]')).toBe(
+      background,
+    );
+  });
+});

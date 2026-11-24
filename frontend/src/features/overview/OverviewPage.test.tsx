@@ -231,6 +231,23 @@ describe('OverviewPage — Readings last hour counter (9.1)', () => {
     expect(alert.parentElement).toHaveTextContent('Critical assets');
   });
 
+  it('links the telemetry card to the Telemetry page', async () => {
+    mockHappySiblingEndpoints();
+    mockTelemetrySummary({
+      readingCount: 3,
+      assetCount: 1,
+      since: '2026-11-09T10:00:00.000Z',
+    });
+
+    renderPage();
+    await screen.findByText('3');
+
+    expect(
+      screen.getByRole('link', { name: 'Open live telemetry' }),
+    ).toHaveAttribute('href', '/telemetry');
+    expect(screen.queryByText(/Phase\s+11/)).not.toBeInTheDocument();
+  });
+
   it('has no axe violations', async () => {
     mockHappySiblingEndpoints();
     mockTelemetrySummary({

@@ -9,6 +9,7 @@ import { listNotifications } from '../features/alerts/api';
 import { can, type Role } from '../lib/auth/roles';
 import { signOut, useSession } from '../lib/auth/session';
 import { formatNumber } from '../lib/format';
+import { DashboardBackground } from './DashboardBackground';
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -73,7 +74,8 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="isolate flex min-h-screen flex-col">
+      <DashboardBackground />
       <header className="relative z-10">
         <div className="mx-auto flex h-20 w-full max-w-page items-center justify-between gap-4 px-9">
           <Link

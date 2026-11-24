@@ -1,9 +1,12 @@
+import { IconArrowRight } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { EmptyState } from '../../design/EmptyState';
 import { ErrorBoundary } from '../../design/ErrorBoundary';
 import { ErrorState } from '../../design/ErrorState';
 import { Eyebrow } from '../../design/Eyebrow';
 import { Heading } from '../../design/Heading';
+import { Icon } from '../../design/Icon';
+import { NavLink } from '../../design/NavLink';
 import { Skeleton } from '../../design/Skeleton';
 import { Sphere } from '../../design/Sphere';
 import { Stat } from '../../design/Stat';
@@ -181,9 +184,16 @@ export default function OverviewPage() {
               Telemetry
             </Eyebrow>
             <p className="font-display text-body font-normal text-text-silver">
-              The live telemetry chart for the selected asset arrives in Phase
-              11.
+              Live readings and the trend chart for any asset are on the
+              Telemetry page.
             </p>
+            <NavLink
+              to="/telemetry"
+              className="inline-flex items-center gap-1.5 self-start hover:text-text-platinum"
+            >
+              Open live telemetry
+              <Icon icon={IconArrowRight} size={16} />
+            </NavLink>
           </Surface>
 
           <Surface tone="kelp" padding="none">
