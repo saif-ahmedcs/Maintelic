@@ -25,6 +25,10 @@ test.describe('auth', () => {
   test('signs out back to the login page', async ({ page }) => {
     await loginAsAdmin(page);
     await page.getByRole('button', { name: 'Sign out' }).click();
+    await page
+      .getByRole('dialog', { name: 'Sign out?' })
+      .getByRole('button', { name: 'Sign out' })
+      .click();
     await expect(page).toHaveURL(/\/app\/login$/);
     await page.goto('work-orders');
     await expect(page).toHaveURL(/\/app\/login/);

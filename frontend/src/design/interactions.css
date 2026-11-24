@@ -1,30 +1,3 @@
-/*
- * Interaction & motion layer.
- *
- * Everything that moves lives here so every control shares one motion
- * language. Durations and easings come from design/tokens.json (see
- * --motion-duration-* and --ease-* in theme.css). Nothing in this file
- * introduces a new color: glows and washes are mixed from existing tokens.
- *
- * Rules of the language:
- *   - Press 90ms, hover/focus 150ms, menus 220ms, dialogs 320ms. Leaving is
- *     always quicker than arriving (180ms).
- *   - Movement uses ease-settle (fast start, soft landing). Color and opacity
- *     use ease-standard. Exits use ease-exit.
- *   - Lift is 1px, press scale is 0.985 (0.92 on 32px icon buttons). Nothing
- *     bounces and nothing loops except the loading spinner.
- *   - Hover effects only run where hover exists (@media (hover: hover)) and
- *     never on disabled or busy controls.
- *   - Position and scale use the individual `translate` / `scale` / `rotate`
- *     properties so hover lift and press scale compose without fighting.
- *   - Colors that Tailwind utilities own (text, border, fill) are changed with
- *     utility variants in the components; this file adds overlays, shadows and
- *     movement on top, so the two layers never override each other.
- *
- * prefers-reduced-motion is handled globally in index.css: all transitions and
- * animations are switched off and every state stays readable without them.
- */
-
 @keyframes ui-fade-in {
   from {
     opacity: 0;
@@ -435,6 +408,89 @@
   .ui-row {
     transition: background-color var(--motion-duration-fast)
       var(--ease-standard);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Linked cards                                                        */
+  /* ------------------------------------------------------------------ */
+
+  .ui-card-link {
+    position: relative;
+    isolation: isolate;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: scale var(--motion-duration-fast) var(--ease-settle);
+  }
+
+  .ui-card-link::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    border: 1px solid
+      color-mix(in srgb, var(--color-accent-aurora-cyan) 32%, transparent);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-accent-teal-signal) 20%, transparent),
+      color-mix(in srgb, var(--color-accent-teal-signal) 6%, transparent)
+    );
+    opacity: 0;
+    transition: opacity var(--motion-duration-base) var(--ease-standard);
+  }
+
+  .ui-card-link__anchor {
+    outline: 2px solid transparent;
+  }
+
+  /* The link covers the card; focus is drawn on the card, not the text. */
+  .ui-card-link__anchor::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+
+  .ui-card-link__arrow,
+  .ui-card-link__bell {
+    transition:
+      translate var(--motion-duration-base) var(--ease-settle),
+      scale var(--motion-duration-base) var(--ease-settle),
+      opacity var(--motion-duration-base) var(--ease-standard),
+      filter var(--motion-duration-base) var(--ease-standard);
+  }
+
+  .ui-card-link:has(.ui-card-link__anchor:focus-visible) {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .ui-card-link:has(.ui-card-link__anchor:focus-visible)::before {
+    opacity: 1;
+  }
+
+  .ui-card-link:has(.ui-card-link__anchor:focus-visible) .ui-card-link__arrow {
+    translate: 3px 0;
+  }
+
+  @media (hover: hover) {
+    .ui-card-link:hover::before {
+      opacity: 1;
+    }
+
+    .ui-card-link:hover .ui-card-link__arrow {
+      translate: 3px 0;
+    }
+
+    .ui-card-link:hover .ui-card-link__bell {
+      scale: 1.06;
+    }
+  }
+
+  .ui-card-link:active {
+    scale: 0.99;
+    transition-duration: var(--motion-duration-press);
   }
 
   /* ------------------------------------------------------------------ */

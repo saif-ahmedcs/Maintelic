@@ -1,6 +1,5 @@
 import { IconArrowRight } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import { EmptyState } from '../../design/EmptyState';
 import { ErrorBoundary } from '../../design/ErrorBoundary';
 import { ErrorState } from '../../design/ErrorState';
 import { Eyebrow } from '../../design/Eyebrow';
@@ -8,19 +7,17 @@ import { Heading } from '../../design/Heading';
 import { Icon } from '../../design/Icon';
 import { NavLink } from '../../design/NavLink';
 import { Skeleton } from '../../design/Skeleton';
-import { Sphere } from '../../design/Sphere';
 import { Stat } from '../../design/Stat';
 import { Surface } from '../../design/Surface';
 import { ApiError, toUserMessage } from '../../lib/api/errors';
 import { formatNumber } from '../../lib/format';
-import { listNotifications } from '../alerts/api';
-import { NotificationItem } from '../alerts/NotificationItem';
 import { listAssets } from '../assets/api';
 import { listDuePlans } from '../plans/api';
 import { listSpareParts } from '../spare-parts/api';
 import { getTelemetrySummary } from '../telemetry/api';
 import { listWorkOrders } from '../work-orders/api';
 import { WorkOrderRow } from '../work-orders/WorkOrderRow';
+import { AlertsPanel } from './AlertsPanel';
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -114,14 +111,7 @@ export default function OverviewPage() {
     refetchInterval: POLL_INTERVAL_MS,
   });
 
-  const unreadAlerts = useQuery({
-    queryKey: ['notifications', 'list', { status: 'UNREAD', limit: 5 }],
-    queryFn: () => listNotifications({ status: 'UNREAD', limit: 5 }),
-    refetchInterval: POLL_INTERVAL_MS,
-  });
-
   const queueItems = workOrderQueue.data?.data ?? [];
-  const alertItems = unreadAlerts.data?.data ?? [];
 
   return (
     <div className="flex flex-col gap-12">
@@ -177,9 +167,12 @@ export default function OverviewPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="flex flex-col gap-6 lg:col-span-2">
-          <Surface tone="deep" className="flex flex-col gap-3">
+      <div className="flex flex-col gap-6">
+        <Surface
+          tone="deep"
+          className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-9"
+        >
+          <div className="flex flex-col gap-3">
             <Eyebrow tone="silver" size="label">
               Telemetry
             </Eyebrow>
@@ -187,16 +180,18 @@ export default function OverviewPage() {
               Live readings and the trend chart for any asset are on the
               Telemetry page.
             </p>
-            <NavLink
-              to="/telemetry"
-              className="inline-flex items-center gap-1.5 self-start hover:text-text-platinum"
-            >
-              Open live telemetry
-              <Icon icon={IconArrowRight} size={16} />
-            </NavLink>
-          </Surface>
+          </div>
+          <NavLink
+            to="/telemetry"
+            className="inline-flex shrink-0 items-center gap-1.5 self-start hover:text-text-platinum sm:self-center"
+          >
+            Open live telemetry
+            <Icon icon={IconArrowRight} size={16} />
+          </NavLink>
+        </Surface>
 
-          <Surface tone="kelp" padding="none">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <Surface tone="kelp" padding="none" className="xl:col-span-2">
             <div className="px-9 pt-9">
               <Eyebrow tone="silver" size="label">
                 Work order queue
@@ -229,44 +224,8 @@ export default function OverviewPage() {
               </ErrorBoundary>
             </div>
           </Surface>
-        </div>
 
-        <div className="flex flex-col gap-4">
-          <Eyebrow tone="silver" size="label">
-            Alerts
-          </Eyebrow>
-
-          <ErrorBoundary fallbackMessage="Could not show alerts.">
-            {unreadAlerts.isError ? (
-              <Surface tone="kelp">
-                <ErrorState
-                  error={tileErrorMessage(unreadAlerts.error)}
-                  onRetry={() => unreadAlerts.refetch()}
-                />
-              </Surface>
-            ) : unreadAlerts.isPending ? (
-              <Surface tone="kelp">
-                <Skeleton lines={5} height={20} />
-              </Surface>
-            ) : alertItems.length === 0 ? (
-              <div className="flex flex-col items-center gap-6">
-                <Sphere size={160} />
-                <EmptyState
-                  title="Nothing is overdue"
-                  body="No unread alerts right now."
-                />
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {alertItems.map((notification) => (
-                  <NotificationItem
-                    key={notification.id}
-                    notification={notification}
-                  />
-                ))}
-              </div>
-            )}
-          </ErrorBoundary>
+          <AlertsPanel className="xl:col-span-1" />
         </div>
       </div>
     </div>

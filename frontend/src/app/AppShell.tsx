@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '../design/Button';
+import { Dialog } from '../design/Dialog';
 import { IconButton } from '../design/IconButton';
 import { NavLink } from '../design/NavLink';
 import { usePresence } from '../design/usePresence';
@@ -10,6 +11,7 @@ import { listNotifications } from '../features/alerts/api';
 import { can, type Role } from '../lib/auth/roles';
 import { signOut, useSession } from '../lib/auth/session';
 import { formatNumber } from '../lib/format';
+import maintelicLogo from '../assets/maintelic-logo.png';
 import { DashboardBackground } from './DashboardBackground';
 
 const POLL_INTERVAL_MS = 30_000;
@@ -42,6 +44,8 @@ export function AppShell() {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileMenu = usePresence(mobileOpen);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -70,9 +74,18 @@ export function AppShell() {
     (item) => !item.guard || item.guard(user.roles),
   );
 
-  async function handleSignOut() {
-    await signOut();
-    navigate('/login', { replace: true });
+  function closeSignOutConfirm() {
+    if (!signingOut) setConfirmingSignOut(false);
+  }
+
+  async function handleConfirmSignOut() {
+    setSigningOut(true);
+    try {
+      await signOut();
+      navigate('/login', { replace: true });
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -82,9 +95,15 @@ export function AppShell() {
         <div className="mx-auto flex h-20 w-full max-w-page items-center justify-between gap-4 px-9">
           <Link
             to="/"
-            className="font-display text-eyebrow font-medium uppercase text-text-platinum"
+            className="shrink-0 rounded-small transition-[filter] duration-(--motion-duration-fast) ease-standard hover:brightness-110"
           >
-            Industrial Maintenance
+            <img
+              src={maintelicLogo}
+              alt="Maintelic"
+              width={2048}
+              height={682}
+              className="h-11 w-auto sm:h-14"
+            />
           </Link>
 
           <nav aria-label="Main" className="hidden items-center gap-6 lg:flex">
@@ -117,7 +136,7 @@ export function AppShell() {
                 <StatusTag key={role} status={role} showDot={false} />
               ))}
             </div>
-            <Button variant="ghost" onClick={handleSignOut}>
+            <Button variant="ghost" onClick={() => setConfirmingSignOut(true)}>
               Sign out
             </Button>
           </div>
@@ -168,7 +187,10 @@ export function AppShell() {
                   <StatusTag key={role} status={role} showDot={false} />
                 ))}
               </div>
-              <Button variant="ghost" onClick={handleSignOut}>
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmingSignOut(true)}
+              >
                 Sign out
               </Button>
             </div>
@@ -179,6 +201,26 @@ export function AppShell() {
       <main className="mx-auto w-full max-w-page flex-1 px-9 py-9">
         <Outlet />
       </main>
+
+      <Dialog
+        open={confirmingSignOut}
+        title="Sign out?"
+        onClose={closeSignOutConfirm}
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeSignOutConfirm}>
+              Stay signed in
+            </Button>
+            <Button loading={signingOut} onClick={handleConfirmSignOut}>
+              Sign out
+            </Button>
+          </>
+        }
+      >
+        <p className="font-display text-body font-normal text-text-silver">
+          You will need to sign in again to continue.
+        </p>
+      </Dialog>
     </div>
   );
 }

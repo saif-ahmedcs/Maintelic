@@ -130,7 +130,7 @@ describe('AppShell + Overview — axe (17.1)', () => {
 
     const { container } = renderAppAtOverview();
 
-    await screen.findByText('Nothing is overdue');
+    await screen.findByText('No unread alerts right now.');
     await screen.findByText(/No open work orders/);
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -226,5 +226,100 @@ describe('AppShell dashboard background', () => {
     expect(container.querySelector('[data-dashboard-background]')).toBe(
       background,
     );
+  });
+});
+
+describe('AppShell sign out confirmation', () => {
+  function renderAppWithLogin() {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="/" element={<p>Home page</p>} />
+            </Route>
+            <Route path="/login" element={<p>Login page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  function mockNotificationsOnly() {
+    server.use(
+      http.get('/notifications', () =>
+        HttpResponse.json({
+          data: [],
+          meta: { page: 1, limit: 5, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
+  }
+
+  function trackLogout() {
+    const calls = { count: 0 };
+    server.use(
+      http.post('/auth/logout', () => {
+        calls.count += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    return calls;
+  }
+
+  it('asks for confirmation instead of signing out immediately', async () => {
+    const user = userEvent.setup();
+    mockSession(['TECHNICIAN']);
+    await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+    mockNotificationsOnly();
+    const logout = trackLogout();
+
+    renderAppWithLogin();
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Sign out?' });
+    expect(dialog).toHaveTextContent('You will need to sign in again');
+    expect(logout.count).toBe(0);
+    expect(screen.queryByText('Login page')).not.toBeInTheDocument();
+  });
+
+  it('stays signed in when the person cancels', async () => {
+    const user = userEvent.setup();
+    mockSession(['TECHNICIAN']);
+    await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+    mockNotificationsOnly();
+    const logout = trackLogout();
+
+    renderAppWithLogin();
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await user.click(screen.getByRole('button', { name: 'Stay signed in' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(logout.count).toBe(0);
+    expect(screen.queryByText('Login page')).not.toBeInTheDocument();
+  });
+
+  it('signs out and returns to the login page once confirmed', async () => {
+    const user = userEvent.setup();
+    mockSession(['TECHNICIAN']);
+    await signIn({ accessToken: 'token', refreshToken: 'refresh' });
+    mockNotificationsOnly();
+    const logout = trackLogout();
+
+    renderAppWithLogin();
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign out?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Sign out' }));
+
+    expect(await screen.findByText('Login page')).toBeInTheDocument();
+    expect(logout.count).toBe(1);
   });
 });
