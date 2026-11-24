@@ -153,6 +153,19 @@ function buildThemeCss(tokens) {
 
   {
     const lines = [
+      '  /* Motion: ease-settle etc. for utilities, durations via var() */',
+    ];
+    for (const [key, token] of Object.entries(tokens.motion.easing)) {
+      lines.push(`  --ease-${key}: ${token.$value};`);
+    }
+    for (const [key, token] of Object.entries(tokens.motion.duration)) {
+      lines.push(`  --motion-duration-${key}: ${token.$value};`);
+    }
+    chunks.push(lines.join('\n'));
+  }
+
+  {
+    const lines = [
       '  /* Layout */',
       `  --container-page: ${tokens.layout['page-max-width'].$value};`,
       `  --container-prose: ${tokens.layout['prose-max-width'].$value};`,

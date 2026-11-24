@@ -177,7 +177,7 @@ export default function LoginPage() {
                       }
                       aria-pressed={showPassword}
                       onClick={() => setShowPassword((visible) => !visible)}
-                      className="inline-flex size-9 items-center justify-center rounded-small text-text-silver/80 transition-colors duration-200 hover:text-text-platinum"
+                      className="ui-icon-btn ui-icon-btn--quiet inline-flex size-9 items-center justify-center rounded-small text-text-silver/80 hover:text-text-platinum"
                     >
                       <Icon
                         icon={showPassword ? IconEyeOff : IconEye}

@@ -211,10 +211,13 @@ The source reference does not specify timings or easing. The rules below set the
 - **Login hero:** the Particle Sphere rotates slowly behind the Oversized Kinetic Text. This is the one orchestrated page-load moment.
 - **Overview empty state:** the Particle Sphere rotates behind the Hero Headline when no alerts are open. Motion stops once a CRITICAL alert appears, so the eye goes to the alert.
 - **Live telemetry:** the Telemetry Chart and latest-value counter update in place with no entrance animation. New points are added without a sweep.
-- **Button and link states:** the Gradient Pill Button and Arrow Icon Button change only in color on hover and focus. No lift, no scale.
+- **Button and link states:** every control follows one motion language, defined by the `motion` tokens (`press` 90ms, `fast` 150ms, `exit` 180ms, `base` 220ms, `slow` 320ms; easings `standard`, `settle`, `exit`) and implemented in `src/design/interactions.css`. Hover lifts the Gradient Pill Button by 1px with a restrained cyan glow and a single light sweep; the ghost button gains a teal wash and a brighter border; the Arrow Icon Button brightens its fill and nudges its glyph. Pressing scales a control to 0.985 (0.92 on 32px icon buttons). Hover effects run only on devices that can hover, and never on disabled or loading controls. Nothing bounces, and nothing loops except the loading spinner.
+- **Loading buttons:** the label stays in the layout and the spinner sits over it, so a button never changes size while it works.
+- **Menus and dialogs:** they ease in (220ms menus, 320ms dialogs) and out (180ms). Inline error text eases in.
+- **Tabs and navigation:** one underline slides between tabs; a hairline draws under a nav link on hover and stays under the current page.
 - **Work-order actions:** when a status changes, the Status Tag swaps color with no transition longer than the existing hover state. The change must be visible without motion.
 - **No entrance animations on data.** Tables, cards, and rows appear immediately. Fade-and-slide sequences are not used.
-- **Reduced motion:** when the user prefers reduced motion, the Particle Sphere is shown as a still frame and the kinetic text does not move.
+- **Reduced motion:** when the user prefers reduced motion, the Particle Sphere is shown as a still frame and the kinetic text does not move. All transitions and animations are switched off globally, and menus and dialogs close instantly. Every state stays readable without motion.
 
 ## Do's and Don'ts
 
@@ -232,7 +235,7 @@ The source reference does not specify timings or easing. The rules below set the
 
 ### Don't
 
-- Do not use drop shadows or box-shadows for elevation — differentiation comes from surface color shifts in the teal stack, not shadow
+- Do not use drop shadows or box-shadows for elevation — differentiation comes from surface color shifts in the teal stack, not shadow. The only shadow is the tinted hover glow under a solid button, which signals interaction, not depth
 - Do not introduce bold (600+) or light (300-) weights at display sizes — the medium-only strategy is core to the mechanical confidence
 - Do not use white (#ffffff) for body text — reserve pure white for headings and nav, use silver (#bbc7c6) or mist (#edfffe) for body
 - Do not use Slate Deep (#707777) for any text — it fails WCAG AA on Liquid Abyss (3.52:1) and Liquid Kelp (2.88:1). Use silver or mist for labels; Slate Deep is limited to gridlines, borders, and marker dots

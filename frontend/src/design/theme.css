@@ -94,6 +94,16 @@
   --radius-small: 6px;
   --radius-card: 16px;
 
+  /* Motion: ease-settle etc. for utilities, durations via var() */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --motion-duration-press: 90ms;
+  --motion-duration-fast: 150ms;
+  --motion-duration-exit: 180ms;
+  --motion-duration-base: 220ms;
+  --motion-duration-slow: 320ms;
+
   /* Layout */
   --container-page: 1440px;
   --container-prose: 600px;

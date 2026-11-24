@@ -1,12 +1,11 @@
 import { Fragment, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import { ErrorState } from '../../design/ErrorState';
 import { Eyebrow } from '../../design/Eyebrow';
 import { Field } from '../../design/Field';
 import { Heading } from '../../design/Heading';
-import { Icon } from '../../design/Icon';
+import { IconButton } from '../../design/IconButton';
 import { Pagination } from '../../design/Pagination';
 import { Panel } from '../../design/Panel';
 import { Select, type SelectOption } from '../../design/Select';
@@ -290,7 +289,7 @@ export default function AuditPage() {
 
                     return (
                       <Fragment key={entry.id}>
-                        <tr className="border-b border-surface-abyss last:border-b-0 hover:bg-surface-abyss">
+                        <tr className="ui-row border-b border-surface-abyss last:border-b-0 hover:bg-surface-abyss">
                           <td className={`${CELL_PADDING} ${VALUE_CLASSES}`}>
                             {formatDateTime(entry.createdAt)}
                           </td>
@@ -307,7 +306,7 @@ export default function AuditPage() {
                             {entityRoute ? (
                               <Link
                                 to={entityRoute}
-                                className="text-text-mist underline-offset-2 hover:underline"
+                                className="ui-link-underline text-text-mist"
                               >
                                 {shortId(entry.entityId)}
                               </Link>
@@ -319,24 +318,16 @@ export default function AuditPage() {
                             {entry.source}
                           </td>
                           <td className={`${CELL_PADDING} text-right`}>
-                            <button
-                              type="button"
-                              className="inline-flex size-8 items-center justify-center rounded-small bg-surface-arrow-button text-text-platinum"
+                            <IconButton
+                              icon="chevron"
                               aria-expanded={expanded}
-                              aria-label={
+                              label={
                                 expanded
                                   ? 'Collapse change details'
                                   : 'Expand change details'
                               }
                               onClick={() => toggleExpanded(entry.id)}
-                            >
-                              <Icon
-                                icon={
-                                  expanded ? IconChevronUp : IconChevronDown
-                                }
-                                size={16}
-                              />
-                            </button>
+                            />
                           </td>
                         </tr>
                         {expanded && (

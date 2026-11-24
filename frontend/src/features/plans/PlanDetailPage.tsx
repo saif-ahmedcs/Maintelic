@@ -245,7 +245,7 @@ export default function PlanDetailPage() {
               assetQuery.data ? (
                 <Link
                   to={`/assets/${plan.assetId}`}
-                  className="text-text-mist underline-offset-2 hover:underline"
+                  className="ui-link-underline text-text-mist"
                 >
                   {assetQuery.data.tag}
                 </Link>

@@ -1,8 +1,13 @@
 import type { ComponentPropsWithoutRef } from 'react';
-import { IconArrowUpRight, IconMenu2, IconX } from '@tabler/icons-react';
+import {
+  IconArrowUpRight,
+  IconChevronDown,
+  IconMenu2,
+  IconX,
+} from '@tabler/icons-react';
 import { Icon, type TablerIconComponent } from './Icon';
 
-export type IconButtonIcon = 'open' | 'close' | 'menu';
+export type IconButtonIcon = 'open' | 'close' | 'menu' | 'chevron';
 
 interface IconButtonOwnProps {
   label: string;
@@ -17,6 +22,7 @@ const ICON_MAP: Record<IconButtonIcon, TablerIconComponent> = {
   open: IconArrowUpRight,
   close: IconX,
   menu: IconMenu2,
+  chevron: IconChevronDown,
 };
 
 export function IconButton({
@@ -33,6 +39,7 @@ export function IconButton({
     'justify-center',
     'size-8', // 32px square
     'rounded-small', // 6px
+    'ui-icon-btn',
     'bg-surface-arrow-button',
     'text-text-platinum',
     'disabled:opacity-50',
@@ -47,6 +54,7 @@ export function IconButton({
       type={type}
       disabled={disabled}
       aria-label={label}
+      data-icon={icon}
       className={classes}
       {...rest}
     >

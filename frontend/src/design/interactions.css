@@ -1,0 +1,576 @@
+/*
+ * Interaction & motion layer.
+ *
+ * Everything that moves lives here so every control shares one motion
+ * language. Durations and easings come from design/tokens.json (see
+ * --motion-duration-* and --ease-* in theme.css). Nothing in this file
+ * introduces a new color: glows and washes are mixed from existing tokens.
+ *
+ * Rules of the language:
+ *   - Press 90ms, hover/focus 150ms, menus 220ms, dialogs 320ms. Leaving is
+ *     always quicker than arriving (180ms).
+ *   - Movement uses ease-settle (fast start, soft landing). Color and opacity
+ *     use ease-standard. Exits use ease-exit.
+ *   - Lift is 1px, press scale is 0.985 (0.92 on 32px icon buttons). Nothing
+ *     bounces and nothing loops except the loading spinner.
+ *   - Hover effects only run where hover exists (@media (hover: hover)) and
+ *     never on disabled or busy controls.
+ *   - Position and scale use the individual `translate` / `scale` / `rotate`
+ *     properties so hover lift and press scale compose without fighting.
+ *   - Colors that Tailwind utilities own (text, border, fill) are changed with
+ *     utility variants in the components; this file adds overlays, shadows and
+ *     movement on top, so the two layers never override each other.
+ *
+ * prefers-reduced-motion is handled globally in index.css: all transitions and
+ * animations are switched off and every state stays readable without them.
+ */
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ui-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@keyframes ui-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.99);
+  }
+}
+
+@keyframes ui-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+@keyframes ui-dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+@keyframes ui-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes ui-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@layer base {
+  /* Inline error and status messages ease in instead of snapping in. */
+  [role='alert'] {
+    animation: ui-enter var(--motion-duration-base) var(--ease-settle) backwards;
+  }
+}
+
+@layer components {
+  /* ------------------------------------------------------------------ */
+  /* Buttons                                                             */
+  /* ------------------------------------------------------------------ */
+
+  .ui-btn {
+    position: relative;
+    isolation: isolate;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    outline: 2px solid transparent;
+    outline-offset: 0;
+    transition:
+      translate var(--motion-duration-fast) var(--ease-settle),
+      scale var(--motion-duration-fast) var(--ease-settle),
+      filter var(--motion-duration-fast) var(--ease-standard),
+      box-shadow var(--motion-duration-base) var(--ease-standard),
+      color var(--motion-duration-fast) var(--ease-standard),
+      opacity var(--motion-duration-fast) var(--ease-standard),
+      outline-color var(--motion-duration-fast) var(--ease-standard),
+      outline-offset var(--motion-duration-fast) var(--ease-settle);
+  }
+
+  .ui-btn:focus-visible {
+    outline-color: var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .ui-btn:disabled {
+    cursor: not-allowed;
+  }
+
+  .ui-btn:not(:disabled):active {
+    transition-duration: var(--motion-duration-press);
+  }
+
+  /* Solid: the gradient pill (primary and signal) ---------------------- */
+
+  .ui-btn-solid {
+    --ui-btn-fg: var(--color-text-ink);
+    overflow: hidden;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.28),
+      var(--ui-btn-rest-shadow, 0 0 0 0 transparent),
+      0 0 0 0 transparent;
+  }
+
+  .ui-btn-signal {
+    --ui-btn-rest-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  }
+
+  /* A single soft band of light that crosses the button once on hover. */
+  .ui-btn-solid::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(
+      105deg,
+      transparent 32%,
+      rgb(255 255 255 / 0.42) 50%,
+      transparent 68%
+    );
+    opacity: 0;
+    translate: -110% 0;
+    /* On leave: fade out first, then snap back to the start unseen. */
+    transition:
+      opacity var(--motion-duration-fast) var(--ease-standard),
+      translate 0s linear var(--motion-duration-fast);
+  }
+
+  @media (hover: hover) {
+    .ui-btn-solid:not(:disabled):hover {
+      translate: 0 -1px;
+      filter: brightness(1.05);
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.38),
+        var(--ui-btn-rest-shadow, 0 0 0 0 transparent),
+        0 8px 20px -10px
+          color-mix(in srgb, var(--color-accent-aurora-cyan) 75%, transparent);
+    }
+
+    .ui-btn-solid:not(:disabled):hover::after {
+      opacity: 1;
+      translate: 110% 0;
+      transition:
+        opacity var(--motion-duration-fast) var(--ease-standard),
+        translate 700ms var(--ease-settle);
+    }
+  }
+
+  .ui-btn-solid:not(:disabled):active {
+    translate: 0 0;
+    scale: 0.985;
+    filter: brightness(0.95);
+    box-shadow:
+      inset 0 1px 2px rgb(0 0 0 / 0.22),
+      var(--ui-btn-rest-shadow, 0 0 0 0 transparent),
+      0 0 0 0 transparent;
+  }
+
+  /* Outline: the ghost button ------------------------------------------ */
+
+  .ui-btn-outline {
+    --ui-btn-fg: var(--color-text-silver);
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  /* An overlay carries the hover border and wash, because the resting
+     border color belongs to a utility class. */
+  .ui-btn-outline::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    border: 1px solid
+      color-mix(in srgb, var(--color-accent-aurora-cyan) 45%, transparent);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-accent-teal-signal) 24%, transparent),
+      color-mix(in srgb, var(--color-accent-teal-signal) 8%, transparent)
+    );
+    opacity: 0;
+    transition: opacity var(--motion-duration-fast) var(--ease-standard);
+  }
+
+  @media (hover: hover) {
+    .ui-btn-outline:not(:disabled):hover {
+      box-shadow: 0 6px 16px -10px
+        color-mix(in srgb, var(--color-accent-aurora-cyan) 55%, transparent);
+    }
+
+    .ui-btn-outline:not(:disabled):hover::before {
+      opacity: 1;
+    }
+  }
+
+  .ui-btn-outline:not(:disabled):active {
+    scale: 0.985;
+  }
+
+  .ui-btn-outline:not(:disabled):active::before {
+    opacity: 1;
+    background: color-mix(
+      in srgb,
+      var(--color-accent-teal-signal) 30%,
+      transparent
+    );
+  }
+
+  /* Loading ------------------------------------------------------------ */
+
+  /* The label stays in the layout (it is made transparent by the
+     aria-busy utilities in Button), so the button keeps its exact size. The
+     spinner is laid over its center. */
+  .ui-btn-spinner {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 16px;
+    height: 16px;
+    color: var(--ui-btn-fg, var(--color-text-silver));
+    animation:
+      ui-fade-in var(--motion-duration-fast) var(--ease-standard) backwards,
+      ui-spin 800ms linear infinite;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Icon buttons                                                        */
+  /* ------------------------------------------------------------------ */
+
+  .ui-icon-btn {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    outline: 2px solid transparent;
+    outline-offset: 0;
+    transition:
+      scale var(--motion-duration-fast) var(--ease-settle),
+      color var(--motion-duration-fast) var(--ease-standard),
+      opacity var(--motion-duration-fast) var(--ease-standard),
+      outline-color var(--motion-duration-fast) var(--ease-standard),
+      outline-offset var(--motion-duration-fast) var(--ease-settle);
+  }
+
+  .ui-icon-btn:focus-visible {
+    outline-color: var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .ui-icon-btn:disabled {
+    cursor: not-allowed;
+  }
+
+  .ui-icon-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: color-mix(
+      in srgb,
+      var(--color-accent-teal-signal) 50%,
+      transparent
+    );
+    opacity: 0;
+    transition: opacity var(--motion-duration-fast) var(--ease-standard);
+  }
+
+  .ui-icon-btn--quiet::before {
+    background: color-mix(in srgb, var(--color-text-silver) 14%, transparent);
+  }
+
+  .ui-icon-btn > span {
+    transition:
+      translate var(--motion-duration-base) var(--ease-settle),
+      rotate var(--motion-duration-base) var(--ease-settle);
+  }
+
+  @media (hover: hover) {
+    .ui-icon-btn:not(:disabled):hover::before {
+      opacity: 1;
+    }
+
+    .ui-icon-btn[data-icon='open']:not(:disabled):hover > span {
+      translate: 1.5px -1.5px;
+    }
+
+    .ui-icon-btn[data-icon='close']:not(:disabled):hover > span {
+      rotate: 90deg;
+    }
+  }
+
+  .ui-icon-btn:not(:disabled):active {
+    scale: 0.92;
+    transition-duration: var(--motion-duration-press);
+  }
+
+  /* One chevron, rotated by the control's own state. */
+  .ui-icon-btn[data-icon='chevron'][aria-expanded='true'] > span {
+    rotate: 180deg;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Links, navigation, tabs, rows                                       */
+  /* ------------------------------------------------------------------ */
+
+  .ui-link {
+    transition: color var(--motion-duration-fast) var(--ease-standard);
+  }
+
+  .ui-link-underline {
+    text-decoration-line: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 3px;
+    transition:
+      color var(--motion-duration-fast) var(--ease-standard),
+      text-decoration-color var(--motion-duration-fast) var(--ease-standard);
+  }
+
+  .ui-link-underline:focus-visible {
+    text-decoration-color: currentColor;
+  }
+
+  @media (hover: hover) {
+    .ui-link-underline:hover {
+      text-decoration-color: currentColor;
+    }
+  }
+
+  /* Top navigation: a hairline draws in from the left; the current page
+     keeps it. */
+  .ui-nav-link {
+    position: relative;
+    transition: color var(--motion-duration-fast) var(--ease-standard);
+  }
+
+  .ui-nav-link::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: -6px;
+    left: 0;
+    height: 1px;
+    background: currentColor;
+    transform-origin: left center;
+    scale: 0 1;
+    transition: scale var(--motion-duration-base) var(--ease-settle);
+  }
+
+  .ui-nav-link:focus-visible::after,
+  .ui-nav-link[aria-current='page']::after {
+    scale: 1 1;
+  }
+
+  @media (hover: hover) {
+    .ui-nav-link:hover::after {
+      scale: 1 1;
+    }
+  }
+
+  /* Tabs: one indicator slides between tabs. Tabs.tsx writes --tab-x and
+     --tab-w; it is positioned without a transition until the first
+     measurement is done so it never slides in from nowhere. */
+  .ui-tabs {
+    position: relative;
+  }
+
+  .ui-tab-indicator {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    width: var(--tab-w, 0px);
+    translate: var(--tab-x, 0px) 0;
+    background: var(--color-text-mist);
+    pointer-events: none;
+  }
+
+  .ui-tabs[data-ready='true'] > .ui-tab-indicator {
+    transition:
+      translate var(--motion-duration-slow) var(--ease-settle),
+      width var(--motion-duration-slow) var(--ease-settle);
+  }
+
+  .ui-tab {
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      color var(--motion-duration-fast) var(--ease-standard),
+      border-color var(--motion-duration-fast) var(--ease-standard),
+      scale var(--motion-duration-fast) var(--ease-settle);
+  }
+
+  .ui-tab:active {
+    scale: 0.97;
+    transition-duration: var(--motion-duration-press);
+  }
+
+  .ui-row {
+    transition: background-color var(--motion-duration-fast)
+      var(--ease-standard);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Form controls                                                       */
+  /* ------------------------------------------------------------------ */
+
+  .ui-checkbox {
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    border: 1px solid var(--color-surface-slate);
+    border-radius: var(--radius-small);
+    background-color: var(--color-surface-kelp);
+    box-shadow: 0 0 0 0 transparent;
+    transition:
+      background-color var(--motion-duration-fast) var(--ease-standard),
+      border-color var(--motion-duration-fast) var(--ease-standard),
+      box-shadow var(--motion-duration-base) var(--ease-standard),
+      scale var(--motion-duration-fast) var(--ease-settle);
+  }
+
+  .ui-checkbox::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 5px;
+    width: 5px;
+    height: 9px;
+    border: solid var(--color-text-platinum);
+    border-width: 0 2px 2px 0;
+    rotate: 45deg;
+    scale: 0;
+    opacity: 0;
+    transition:
+      scale var(--motion-duration-base) var(--ease-settle),
+      opacity var(--motion-duration-fast) var(--ease-standard);
+  }
+
+  .ui-checkbox:checked {
+    border-color: var(--color-accent-teal-signal);
+    background-color: var(--color-accent-teal-signal);
+  }
+
+  .ui-checkbox:checked::after {
+    scale: 1;
+    opacity: 1;
+  }
+
+  @media (hover: hover) {
+    .ui-checkbox:not(:disabled):hover {
+      border-color: color-mix(
+        in srgb,
+        var(--color-accent-aurora-cyan) 60%,
+        transparent
+      );
+      box-shadow: 0 0 0 3px
+        color-mix(in srgb, var(--color-accent-aurora-cyan) 10%, transparent);
+    }
+  }
+
+  .ui-checkbox:not(:disabled):active {
+    scale: 0.92;
+    transition-duration: var(--motion-duration-press);
+  }
+
+  .ui-checkbox:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Listbox options: the highlighted one carries a small accent bar. */
+  .ui-option {
+    position: relative;
+    transition:
+      background-color var(--motion-duration-fast) var(--ease-standard),
+      color var(--motion-duration-fast) var(--ease-standard);
+  }
+
+  .ui-option::before {
+    content: '';
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    left: 0;
+    width: 2px;
+    background: var(--color-text-mist);
+    scale: 1 0;
+    transition: scale var(--motion-duration-fast) var(--ease-settle);
+  }
+
+  .ui-option[data-highlighted='true']::before {
+    scale: 1 1;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Presence: menus, dialogs, inline content                            */
+  /* ------------------------------------------------------------------ */
+
+  .ui-pop {
+    transform-origin: top center;
+  }
+
+  .ui-pop[data-state='open'] {
+    animation: ui-pop-in var(--motion-duration-base) var(--ease-settle)
+      backwards;
+  }
+
+  .ui-pop[data-state='closed'] {
+    animation: ui-pop-out var(--motion-duration-exit) var(--ease-exit) forwards;
+  }
+
+  .ui-dialog-backdrop[data-state='open'] {
+    animation: ui-fade-in var(--motion-duration-base) var(--ease-standard)
+      backwards;
+  }
+
+  .ui-dialog-backdrop[data-state='closed'] {
+    animation: ui-fade-out var(--motion-duration-exit) var(--ease-exit) forwards;
+  }
+
+  .ui-dialog-panel[data-state='open'] {
+    animation: ui-dialog-in var(--motion-duration-slow) var(--ease-settle)
+      backwards;
+  }
+
+  .ui-dialog-panel[data-state='closed'] {
+    animation: ui-dialog-out var(--motion-duration-exit) var(--ease-exit)
+      forwards;
+  }
+
+  .ui-enter {
+    animation: ui-enter var(--motion-duration-base) var(--ease-settle) backwards;
+  }
+}

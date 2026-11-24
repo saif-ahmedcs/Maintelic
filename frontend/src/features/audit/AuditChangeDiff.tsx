@@ -52,7 +52,7 @@ export interface AuditChangeDiffProps {
 
 export function AuditChangeDiff({ before, after }: AuditChangeDiffProps) {
   return (
-    <div className="flex flex-col gap-4 sm:flex-row">
+    <div className="ui-enter flex flex-col gap-4 sm:flex-row">
       <JsonBlock label="Before" value={before} />
       <JsonBlock label="After" value={after} />
     </div>

@@ -89,4 +89,25 @@ describe('Button', () => {
       'submit',
     );
   });
+
+  it('keeps its label in the DOM while loading, so the button keeps its size and name', () => {
+    const { container } = render(<Button loading>Save plan</Button>);
+    const el = within(container).getByRole('button', { name: 'Save plan' });
+    expect(el).toHaveTextContent('Save plan');
+    expect(el.className).toContain('aria-busy:text-transparent');
+  });
+
+  it('gives every variant its interaction treatment', () => {
+    const { container } = render(
+      <>
+        <Button variant="primary">A</Button>
+        <Button variant="ghost">B</Button>
+        <Button variant="signal">C</Button>
+      </>,
+    );
+    const [a, b, c] = within(container).getAllByRole('button');
+    expect(a.className).toContain('ui-btn-solid');
+    expect(b.className).toContain('ui-btn-outline');
+    expect(c.className).toContain('ui-btn-solid');
+  });
 });

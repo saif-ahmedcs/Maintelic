@@ -9,6 +9,10 @@ import { StatusTag, type StatusTagValue } from '../design/StatusTag';
 import { Field } from '../design/Field';
 import { Table, type TableColumn } from '../design/Table';
 import { Pagination, type PaginationMeta } from '../design/Pagination';
+import { Checkbox } from '../design/Checkbox';
+import { Dialog } from '../design/Dialog';
+import { Select } from '../design/Select';
+import { Tabs } from '../design/Tabs';
 import { Surface } from '../design/Surface';
 import { Panel } from '../design/Panel';
 import { EmptyState } from '../design/EmptyState';
@@ -101,6 +105,108 @@ function FieldDemo() {
   );
 }
 
+const DEMO_TABS = [
+  { value: 'all', label: 'All plans' },
+  { value: 'due', label: 'Due soon' },
+  { value: 'overdue', label: 'Overdue' },
+];
+
+const DEMO_OPTIONS = [
+  { value: 'pump', label: 'Centrifugal pump' },
+  { value: 'motor', label: 'Induction motor' },
+  { value: 'conveyor', label: 'Conveyor' },
+];
+
+function InteractionDemo() {
+  const [tab, setTab] = useState('all');
+  const [kind, setKind] = useState('pump');
+  const [kind2, setKind2] = useState('motor');
+  const [checked, setChecked] = useState(true);
+  const [viewer, setViewer] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <>
+      <Row>
+        <Button variant="primary" onClick={() => setDialogOpen(true)}>
+          Open dialog
+        </Button>
+        <Button variant="ghost">Edit</Button>
+        <Button variant="ghost" loading>
+          Acknowledge
+        </Button>
+        <Button variant="ghost" disabled>
+          Previous
+        </Button>
+        <Button variant="signal">Sign in</Button>
+        <Button
+          variant="primary"
+          loading={saving}
+          onClick={() => {
+            setSaving(true);
+            window.setTimeout(() => setSaving(false), 1600);
+          }}
+        >
+          Save plan
+        </Button>
+      </Row>
+      <Row>
+        <IconButton label="Open asset" icon="open" />
+        <IconButton label="Close" icon="close" />
+        <IconButton label="Menu" icon="menu" />
+        <IconButton
+          label={expanded ? 'Collapse details' : 'Expand details'}
+          icon="chevron"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((open) => !open)}
+        />
+      </Row>
+      <Tabs items={DEMO_TABS} value={tab} onChange={setTab} />
+      <div className="grid max-w-md grid-cols-1 gap-6">
+        <Field label="Asset type">
+          <Select options={DEMO_OPTIONS} value={kind} onChange={setKind} />
+        </Field>
+        <Field label="Asset type (searchable)">
+          <Select
+            searchable
+            options={DEMO_OPTIONS}
+            value={kind2}
+            onChange={setKind2}
+          />
+        </Field>
+        <Checkbox
+          label="SUPERVISOR"
+          checked={checked}
+          onChange={() => setChecked((value) => !value)}
+        />
+        <Checkbox
+          label="VIEWER"
+          checked={viewer}
+          onChange={() => setViewer((value) => !value)}
+        />
+        <Checkbox label="ADMIN" checked disabled onChange={() => undefined} />
+      </div>
+      <Dialog
+        open={dialogOpen}
+        title="Cancel work order?"
+        onClose={() => setDialogOpen(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+              Keep work order
+            </Button>
+            <Button onClick={() => setDialogOpen(false)}>Confirm</Button>
+          </>
+        }
+      >
+        <p className="text-text-silver">This cannot be undone.</p>
+      </Dialog>
+    </>
+  );
+}
+
 export default function DesignShowcase() {
   return (
     <div className="mx-auto flex max-w-[1440px] flex-col gap-16 p-9">
@@ -159,6 +265,10 @@ export default function DesignShowcase() {
           <IconButton label="Close" icon="close" />
           <IconButton label="Open asset" icon="open" disabled />
         </Row>
+      </Section>
+
+      <Section title="Interactions">
+        <InteractionDemo />
       </Section>
 
       <Section title="NavLink">

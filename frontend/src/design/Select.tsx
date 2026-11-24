@@ -4,6 +4,9 @@ import {
   type ComponentPropsWithoutRef,
   type KeyboardEvent,
 } from 'react';
+import { IconCheck, IconChevronDown } from '@tabler/icons-react';
+import { Icon } from './Icon';
+import { usePresence } from './usePresence';
 
 export interface SelectOption {
   value: string;
@@ -34,9 +37,28 @@ const CONTROL_CLASSES = [
   'font-ui',
   'text-ui',
   'text-text-platinum',
+  'pr-10', // room for the chevron
+  'transition-[border-color,background-color,box-shadow]',
+  'duration-(--motion-duration-fast)',
+  'ease-standard',
+  'hover:border-text-silver/60',
   'focus:border-text-mist',
+  'aria-[invalid=true]:border-accent-lavender/60',
   'disabled:opacity-50',
   'disabled:cursor-not-allowed',
+  'disabled:hover:border-surface-slate',
+].join(' ');
+
+const CHEVRON_CLASSES = [
+  'pointer-events-none',
+  'absolute',
+  'right-3',
+  'top-1/2',
+  '-translate-y-1/2',
+  'text-text-silver',
+  'transition-[rotate,color]',
+  'duration-(--motion-duration-base)',
+  'ease-settle',
 ].join(' ');
 
 export function Select({
@@ -61,6 +83,8 @@ export function Select({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+
+  const presence = usePresence(isOpen);
 
   const selected = options.find((option) => option.value === value);
 
@@ -130,28 +154,40 @@ export function Select({
   if (!searchable) {
     return (
       <div className="flex flex-col gap-1.5">
-        <select
-          id={controlId}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          aria-describedby={describedBy}
-          aria-invalid={invalid}
-          className={controlClasses}
-        >
-          {placeholder && (
-            <option value="" disabled hidden>
-              {placeholder}
-            </option>
-          )}
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            id={controlId}
+            value={value}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.value)}
+            aria-describedby={describedBy}
+            aria-invalid={invalid}
+            className={['appearance-none', controlClasses].join(' ')}
+          >
+            {placeholder && (
+              <option value="" disabled hidden>
+                {placeholder}
+              </option>
+            )}
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <Icon
+            icon={IconChevronDown}
+            size={16}
+            className={[CHEVRON_CLASSES, disabled ? 'opacity-50' : ''].join(
+              ' ',
+            )}
+          />
+        </div>
         {error && (
-          <p id={errorId} className="font-ui text-ui text-accent-lavender">
+          <p
+            id={errorId}
+            className="ui-enter font-ui text-ui text-accent-lavender"
+          >
             {error}
           </p>
         )}
@@ -166,39 +202,53 @@ export function Select({
 
   return (
     <div className="relative flex flex-col gap-1.5">
-      <input
-        {...rest}
-        id={controlId}
-        type="text"
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-controls={listboxId}
-        aria-autocomplete="list"
-        aria-activedescendant={activeOptionId}
-        aria-describedby={describedBy}
-        aria-invalid={invalid}
-        disabled={disabled}
-        placeholder={placeholder}
-        value={displayValue}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setIsOpen(true);
-          setHighlightedIndex(0);
-        }}
-        onFocus={openList}
-        onBlur={() => {
-          setIsOpen(false);
-          setQuery('');
-        }}
-        onKeyDown={handleKeyDown}
-        className={controlClasses}
-      />
-      {isOpen && (
+      <div className="relative">
+        <input
+          {...rest}
+          id={controlId}
+          type="text"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={activeOptionId}
+          aria-describedby={describedBy}
+          aria-invalid={invalid}
+          disabled={disabled}
+          placeholder={placeholder}
+          value={displayValue}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setIsOpen(true);
+            setHighlightedIndex(0);
+          }}
+          onFocus={openList}
+          onBlur={() => {
+            setIsOpen(false);
+            setQuery('');
+          }}
+          onKeyDown={handleKeyDown}
+          className={controlClasses}
+        />
+        <Icon
+          icon={IconChevronDown}
+          size={16}
+          className={[
+            CHEVRON_CLASSES,
+            isOpen ? 'rotate-180 text-text-platinum' : '',
+            disabled ? 'opacity-50' : '',
+          ].join(' ')}
+        />
+      </div>
+      {presence.mounted && (
         <ul
           id={listboxId}
           role="listbox"
+          data-state={presence.state}
+          inert={!isOpen || undefined}
           onMouseDown={(event) => event.preventDefault()}
           className={[
+            'ui-pop',
             'absolute',
             'top-full',
             'z-10',
@@ -224,9 +274,18 @@ export function Select({
                 id={`${listboxId}-${option.value}`}
                 role="option"
                 aria-selected={option.value === value}
+                data-highlighted={index === highlightedIndex}
                 onClick={() => selectOption(option)}
+                onMouseMove={() => {
+                  if (index !== highlightedIndex) setHighlightedIndex(index);
+                }}
                 className={[
+                  'ui-option',
+                  'flex',
                   'cursor-pointer',
+                  'items-center',
+                  'justify-between',
+                  'gap-2',
                   'px-[14px]',
                   'py-2',
                   'font-ui',
@@ -237,13 +296,23 @@ export function Select({
                 ].join(' ')}
               >
                 {option.label}
+                {option.value === value && (
+                  <Icon
+                    icon={IconCheck}
+                    size={16}
+                    className="shrink-0 text-text-mist"
+                  />
+                )}
               </li>
             ))
           )}
         </ul>
       )}
       {error && (
-        <p id={errorId} className="font-ui text-ui text-accent-lavender">
+        <p
+          id={errorId}
+          className="ui-enter font-ui text-ui text-accent-lavender"
+        >
           {error}
         </p>
       )}

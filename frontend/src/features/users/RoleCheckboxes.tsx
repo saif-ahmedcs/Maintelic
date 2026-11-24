@@ -1,4 +1,5 @@
 import type { Role } from '../auth/api';
+import { Checkbox } from '../../design/Checkbox';
 
 export interface RoleCheckboxesProps {
   legend: string;
@@ -40,19 +41,13 @@ export function RoleCheckboxes({
       <legend className={LEGEND_CLASSES}>{legend}</legend>
       <div className="flex flex-col gap-2">
         {ALL_ROLES.map((role) => (
-          <label
+          <Checkbox
             key={role}
-            className="flex items-center gap-2 font-ui text-ui text-text-platinum"
-          >
-            <input
-              type="checkbox"
-              checked={selected.includes(role)}
-              onChange={() => toggle(role)}
-              disabled={disabled}
-              className="size-4 accent-accent-teal-signal"
-            />
-            {role}
-          </label>
+            label={role}
+            checked={selected.includes(role)}
+            onChange={() => toggle(role)}
+            disabled={disabled}
+          />
         ))}
       </div>
       {error ? (

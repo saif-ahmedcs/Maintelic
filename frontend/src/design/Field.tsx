@@ -37,7 +37,12 @@ const INPUT_CLASSES = [
   'font-ui',
   'text-ui',
   'text-text-platinum',
+  'transition-[border-color,background-color,box-shadow]',
+  'duration-(--motion-duration-fast)',
+  'ease-standard',
+  'hover:border-text-silver/60',
   'focus:border-text-mist',
+  'aria-[invalid=true]:border-accent-lavender/60',
 ].join(' ');
 
 const GLASS_INPUT_CLASSES = [
@@ -53,7 +58,8 @@ const GLASS_INPUT_CLASSES = [
   'text-text-platinum',
   'placeholder:text-text-silver/60',
   'transition-[border-color,background-color,box-shadow]',
-  'duration-150',
+  'duration-(--motion-duration-fast)',
+  'ease-standard',
   'hover:border-text-silver/45',
   'focus:border-accent-aurora-cyan/60',
   'focus:bg-surface-deep/60',
@@ -139,7 +145,10 @@ export function Field({
       )}
       {/* Error replaces the hint rather than stacking below it. */}
       {error ? (
-        <p id={errorId} className="font-ui text-ui text-accent-lavender">
+        <p
+          id={errorId}
+          className="ui-enter font-ui text-ui text-accent-lavender"
+        >
           {error}
         </p>
       ) : (

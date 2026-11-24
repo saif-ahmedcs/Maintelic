@@ -35,7 +35,7 @@ export function Pagination({ meta, onPageChange, className }: PaginationProps) {
 
   return (
     <nav aria-label="Pagination" className={classes}>
-      <p className="font-ui text-ui text-text-silver">
+      <p className="font-ui text-ui tabular-nums text-text-silver">
         {total === 0 ? 'No results' : `${rangeStart}–${rangeEnd} of ${total}`}
       </p>
       <div className="flex items-center gap-3">
@@ -46,7 +46,7 @@ export function Pagination({ meta, onPageChange, className }: PaginationProps) {
         >
           Previous
         </Button>
-        <span className="font-ui text-ui text-text-silver">
+        <span className="font-ui text-ui tabular-nums text-text-silver">
           Page {page} of {Math.max(totalPages, 1)}
         </span>
         <Button

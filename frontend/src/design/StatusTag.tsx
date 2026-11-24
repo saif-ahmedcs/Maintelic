@@ -102,6 +102,9 @@ export function StatusTag({
     'font-normal',
     'uppercase',
     'text-caption',
+    'transition-colors',
+    'duration-(--motion-duration-fast)',
+    'ease-standard',
     style.text,
     className,
   ]
@@ -113,9 +116,14 @@ export function StatusTag({
       {showDot && (
         <span
           aria-hidden="true"
-          className={['size-1.5', 'shrink-0', 'rounded-full', style.dot].join(
-            ' ',
-          )}
+          className={[
+            'size-1.5',
+            'shrink-0',
+            'rounded-full',
+            'transition-colors',
+            'duration-(--motion-duration-fast)',
+            style.dot,
+          ].join(' ')}
         />
       )}
       {toLabel(status)}

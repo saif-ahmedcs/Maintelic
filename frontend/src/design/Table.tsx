@@ -116,7 +116,7 @@ export function Table<T>({
                       'border-surface-abyss',
                       'last:border-b-0',
                       clickable
-                        ? 'cursor-pointer hover:bg-surface-abyss focus-visible:bg-surface-abyss'
+                        ? 'ui-row cursor-pointer hover:bg-surface-abyss focus-visible:bg-surface-abyss active:bg-surface-deep'
                         : '',
                     ]
                       .filter(Boolean)

@@ -22,7 +22,8 @@ export function NavLink({
     'uppercase',
     'text-label', // 12px / 1.4 / 0.12em, matches DESIGN.md exactly
     'font-normal',
-    active ? 'text-text-platinum' : 'text-text-silver',
+    'ui-nav-link',
+    active ? 'text-text-platinum' : 'text-text-silver hover:text-text-platinum',
     className,
   ]
     .filter(Boolean)

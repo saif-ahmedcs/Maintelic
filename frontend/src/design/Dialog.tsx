@@ -2,6 +2,7 @@ import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { Surface } from './Surface';
 import { Heading } from './Heading';
 import { IconButton } from './IconButton';
+import { usePresence } from './usePresence';
 
 export interface DialogProps {
   open: boolean;
@@ -12,8 +13,6 @@ export interface DialogProps {
   className?: string;
 }
 
-// Elements the focus trap treats as tab stops: native interactive
-// controls, plus anything explicitly opted in via tabindex.
 const FOCUSABLE_SELECTOR = [
   'button:not([disabled])',
   '[href]',
@@ -33,10 +32,13 @@ export function Dialog({
 }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  const presence = usePresence(open);
 
-  // Move focus into the dialog on open, and give it back to whatever
-  // triggered it on close — the dialog never leaves the user's keyboard
-  // position stranded.
+  const liveContent = { title, children, footer };
+  const lastOpenContent = useRef(liveContent);
+  if (open) lastOpenContent.current = liveContent;
+  const shown = open ? liveContent : lastOpenContent.current;
+
   useEffect(() => {
     if (!open) return;
 
@@ -50,7 +52,7 @@ export function Dialog({
     };
   }, [open]);
 
-  if (!open) return null;
+  if (!presence.mounted) return null;
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape') {
@@ -88,9 +90,11 @@ export function Dialog({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onKeyDown={handleKeyDown}
+      inert={!open || undefined}
     >
       <div
-        className="absolute inset-0 bg-surface-abyss/80"
+        className="ui-dialog-backdrop absolute inset-0 bg-surface-abyss/80"
+        data-state={presence.state}
         aria-hidden="true"
         onClick={onClose}
       />
@@ -98,22 +102,31 @@ export function Dialog({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={shown.title}
+        data-state={presence.state}
         tabIndex={-1}
-        className={['relative', 'w-full', 'max-w-[480px]', className]
+        className={[
+          'ui-dialog-panel',
+          'relative',
+          'w-full',
+          'max-w-[480px]',
+          className,
+        ]
           .filter(Boolean)
           .join(' ')}
       >
         <Surface tone="kelp" padding="card" className="flex flex-col gap-6">
           <div className="flex items-start justify-between gap-4">
             <Heading level={2} scale="heading">
-              {title}
+              {shown.title}
             </Heading>
             <IconButton icon="close" label="Close" onClick={onClose} />
           </div>
-          {children}
-          {footer && (
-            <div className="flex items-center justify-end gap-3">{footer}</div>
+          {shown.children}
+          {shown.footer && (
+            <div className="flex items-center justify-end gap-3">
+              {shown.footer}
+            </div>
           )}
         </Surface>
       </div>

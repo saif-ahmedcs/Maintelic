@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '../design/Button';
 import { IconButton } from '../design/IconButton';
 import { NavLink } from '../design/NavLink';
+import { usePresence } from '../design/usePresence';
 import { StatusTag } from '../design/StatusTag';
 import { listNotifications } from '../features/alerts/api';
 import { can, type Role } from '../lib/auth/roles';
@@ -40,6 +41,7 @@ export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileMenu = usePresence(mobileOpen);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -106,7 +108,7 @@ export function AppShell() {
           <div className="hidden items-center gap-4 lg:flex">
             <Link
               to="/account"
-              className="font-display text-label text-text-silver hover:text-text-platinum"
+              className="ui-link font-display text-label text-text-silver hover:text-text-platinum"
             >
               {user.email}
             </Link>
@@ -130,18 +132,20 @@ export function AppShell() {
           />
         </div>
 
-        {mobileOpen && (
+        {mobileMenu.mounted && (
           <nav
             id="mobile-nav"
             aria-label="Main"
-            className="flex flex-col gap-1 bg-surface-abyss px-9 py-6 lg:hidden"
+            data-state={mobileMenu.state}
+            inert={!mobileOpen || undefined}
+            className="ui-pop flex flex-col gap-1 bg-surface-abyss px-9 py-6 lg:hidden"
           >
             {visibleItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 active={isActive(location.pathname, item.to)}
-                className="inline-flex items-center gap-1.5 py-2"
+                className="inline-flex items-center gap-1.5 self-start py-2"
               >
                 {item.label}
                 {item.to === '/alerts' && unreadCount > 0 && (
@@ -155,7 +159,7 @@ export function AppShell() {
             <div className="mt-4 flex flex-col gap-3 pt-4">
               <Link
                 to="/account"
-                className="font-display text-label text-text-silver hover:text-text-platinum"
+                className="ui-link font-display text-label text-text-silver hover:text-text-platinum"
               >
                 {user.email}
               </Link>

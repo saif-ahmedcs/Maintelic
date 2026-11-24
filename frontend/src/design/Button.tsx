@@ -16,16 +16,16 @@ export type ButtonProps = ButtonOwnProps &
   Omit<ComponentPropsWithoutRef<'button'>, keyof ButtonOwnProps>;
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
-  primary: 'bg-gradient-bioluminescent text-text-ink',
-  ghost: 'border border-surface-slate text-text-silver',
+  primary: 'ui-btn ui-btn-solid bg-gradient-bioluminescent text-text-ink',
+  ghost: [
+    'ui-btn ui-btn-outline',
+    'border border-surface-slate text-text-silver',
+    'enabled:hover:text-text-platinum',
+  ].join(' '),
   signal: [
+    'ui-btn ui-btn-solid ui-btn-signal',
     'font-semibold tracking-[0.12em] text-text-ink',
     'bg-gradient-bioluminescent',
-    'shadow-[0_1px_2px_rgb(0_0_0/0.4)]',
-    'transition-[transform,filter,box-shadow] duration-150 ease-out',
-    'enabled:hover:brightness-105 enabled:hover:shadow-[0_4px_14px_-6px_rgb(0_0_0/0.6)]',
-    'enabled:active:scale-[0.99] enabled:active:brightness-95',
-    'disabled:opacity-60 disabled:aria-busy:opacity-90',
   ].join(' '),
 };
 
@@ -57,6 +57,9 @@ export function Button({
     'uppercase',
     'disabled:opacity-50',
     'disabled:cursor-not-allowed',
+    'aria-busy:text-transparent',
+    'aria-busy:opacity-[0.85]',
+    'aria-busy:cursor-progress',
     VARIANT_CLASS[variant],
     SIZE_CLASS[size],
     className,
@@ -73,7 +76,7 @@ export function Button({
       {...rest}
     >
       {loading && (
-        <Icon icon={IconLoader2} size={16} className="animate-spin" />
+        <Icon icon={IconLoader2} size={16} className="ui-btn-spinner" />
       )}
       {children}
     </button>
