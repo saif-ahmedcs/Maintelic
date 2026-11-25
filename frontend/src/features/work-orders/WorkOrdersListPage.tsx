@@ -107,52 +107,63 @@ export default function WorkOrdersListPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-2">
-          <Eyebrow tone="silver" size="label">
-            Maintenance work
-          </Eyebrow>
-          <Heading level={1} scale="heading">
-            Work orders
-          </Heading>
+      <div className="flex flex-col gap-2">
+        <Eyebrow tone="silver" size="label">
+          Maintenance work
+        </Eyebrow>
+        <Heading level={1} scale="heading">
+          Work orders
+        </Heading>
+      </div>
+
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <Field label="Status" className="w-44">
+            <Select
+              options={STATUS_OPTIONS}
+              value={status}
+              onChange={(value) =>
+                updateParams(
+                  { status: value || undefined },
+                  { resetPage: true },
+                )
+              }
+            />
+          </Field>
+
+          <Field label="Source" className="w-44">
+            <Select
+              options={SOURCE_OPTIONS}
+              value={source}
+              onChange={(value) =>
+                updateParams(
+                  { source: value || undefined },
+                  { resetPage: true },
+                )
+              }
+            />
+          </Field>
+
+          <Field label="Asset" className="w-48">
+            <Select
+              options={[{ value: '', label: 'All assets' }, ...assetOptions]}
+              value={assetId}
+              onChange={(value) =>
+                updateParams(
+                  { assetId: value || undefined },
+                  { resetPage: true },
+                )
+              }
+              searchable
+            />
+          </Field>
         </div>
 
         {can.createWorkOrder(roles) && (
-          <Button onClick={() => setCreateOpen(true)}>Create work order</Button>
+          <Button className="ml-auto" onClick={() => setCreateOpen(true)}>
+            Create work order
+          </Button>
         )}
-      </div>
-
-      <div className="flex flex-wrap items-end gap-4">
-        <Field label="Status" className="w-44">
-          <Select
-            options={STATUS_OPTIONS}
-            value={status}
-            onChange={(value) =>
-              updateParams({ status: value || undefined }, { resetPage: true })
-            }
-          />
-        </Field>
-
-        <Field label="Source" className="w-44">
-          <Select
-            options={SOURCE_OPTIONS}
-            value={source}
-            onChange={(value) =>
-              updateParams({ source: value || undefined }, { resetPage: true })
-            }
-          />
-        </Field>
-
-        <Field label="Asset" className="w-48">
-          <Select
-            options={[{ value: '', label: 'All assets' }, ...assetOptions]}
-            value={assetId}
-            onChange={(value) =>
-              updateParams({ assetId: value || undefined }, { resetPage: true })
-            }
-            searchable
-          />
-        </Field>
       </div>
 
       {workOrdersQuery.isError ? (

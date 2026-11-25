@@ -187,37 +187,39 @@ export default function SparePartsListPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-2">
-          <Eyebrow tone="silver" size="label">
-            Inventory
-          </Eyebrow>
-          <Heading level={1} scale="heading">
-            Spare parts
-          </Heading>
+      <div className="flex flex-col gap-2">
+        <Eyebrow tone="silver" size="label">
+          Inventory
+        </Eyebrow>
+        <Heading level={1} scale="heading">
+          Spare parts
+        </Heading>
+      </div>
+
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <Field label="Sort by" className="w-44">
+            <Select
+              options={SORT_BY_OPTIONS}
+              value={sortBy}
+              onChange={(value) => updateParams({ sortBy: value })}
+            />
+          </Field>
+
+          <Field label="Direction" className="w-36">
+            <Select
+              options={SORT_DIR_OPTIONS}
+              value={sortDir}
+              onChange={(value) => updateParams({ sortDir: value })}
+            />
+          </Field>
         </div>
 
         {can.manageSpareParts(roles) && (
-          <Button onClick={() => setCreateOpen(true)}>Add part</Button>
+          <Button className="ml-auto" onClick={() => setCreateOpen(true)}>
+            Add part
+          </Button>
         )}
-      </div>
-
-      <div className="flex flex-wrap items-end gap-4">
-        <Field label="Sort by" className="w-44">
-          <Select
-            options={SORT_BY_OPTIONS}
-            value={sortBy}
-            onChange={(value) => updateParams({ sortBy: value })}
-          />
-        </Field>
-
-        <Field label="Direction" className="w-36">
-          <Select
-            options={SORT_DIR_OPTIONS}
-            value={sortDir}
-            onChange={(value) => updateParams({ sortDir: value })}
-          />
-        </Field>
       </div>
 
       {sparePartsQuery.isError ? (
