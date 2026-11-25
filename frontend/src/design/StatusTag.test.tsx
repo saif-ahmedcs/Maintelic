@@ -148,4 +148,11 @@ describe('StatusTag', () => {
     );
     expect(within(container).getByTestId('status-el')).toBeInTheDocument();
   });
+
+  it('sizes to its content so a flex-column or grid parent cannot stretch it', () => {
+    const { container } = render(<StatusTag status="LOW_STOCK" />);
+    const el = within(container).getByText('LOW STOCK').closest('span');
+    expect(el?.className).toContain('w-fit');
+    expect(el?.className).toContain('max-w-full');
+  });
 });

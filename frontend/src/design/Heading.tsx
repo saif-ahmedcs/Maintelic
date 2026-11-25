@@ -3,9 +3,12 @@ import type { ReactNode } from 'react';
 export type HeadingLevel = 1 | 2 | 3;
 export type HeadingScale = 'heading' | 'heading-lg' | 'display';
 
+export type HeadingTone = 'platinum' | 'gradient';
+
 export interface HeadingProps {
   level?: HeadingLevel;
   scale?: HeadingScale;
+  tone?: HeadingTone;
   className?: string;
   children?: ReactNode;
 }
@@ -25,10 +28,13 @@ const TAG: Record<HeadingLevel, 'h1' | 'h2' | 'h3'> = {
 export function Heading({
   level = 2,
   scale = 'heading',
+  tone,
   className,
   children,
 }: HeadingProps) {
   const Tag = TAG[level];
+  const resolvedTone: HeadingTone =
+    tone ?? (level === 1 ? 'gradient' : 'platinum');
 
   const classes = [
     'font-display',
@@ -40,5 +46,13 @@ export function Heading({
     .filter(Boolean)
     .join(' ');
 
-  return <Tag className={classes}>{children}</Tag>;
+  return (
+    <Tag className={classes}>
+      {resolvedTone === 'gradient' ? (
+        <span className="title-gradient">{children}</span>
+      ) : (
+        children
+      )}
+    </Tag>
+  );
 }

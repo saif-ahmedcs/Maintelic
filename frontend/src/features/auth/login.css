@@ -80,21 +80,3 @@
     background: color-mix(in srgb, var(--color-surface-deep) 90%, transparent);
   }
 }
-
-.login-title {
-  background: linear-gradient(
-    100deg,
-    var(--color-text-mist) 0%,
-    var(--color-accent-aurora-cyan) 42%,
-    color-mix(
-        in srgb,
-        var(--color-accent-aurora-cyan) 35%,
-        var(--color-accent-teal-signal)
-      )
-      100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}

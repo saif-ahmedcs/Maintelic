@@ -94,13 +94,16 @@ export function StatusTag({
 
   const classes = [
     'inline-flex',
+    'w-fit',
+    'max-w-full',
     'items-center',
     'gap-1.5',
     'rounded-small',
     'border',
     'border-surface-slate',
     'bg-surface-abyss',
-    'px-[10px]',
+    'pl-[10px]',
+    'pr-[calc(10px-0.15em)]',
     'py-1',
     'font-display',
     'font-normal',

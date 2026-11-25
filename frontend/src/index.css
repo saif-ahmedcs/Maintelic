@@ -2,6 +2,7 @@
 @import './design/theme.css';
 @import './design/interactions.css';
 @import './design/status-marker.css';
+@import './design/title-gradient.css';
 
 @font-face {
   font-family: 'InterFallback';

@@ -112,6 +112,7 @@ export default function OverviewPage() {
   });
 
   const queueItems = workOrderQueue.data?.data ?? [];
+  const queueTotal = workOrderQueue.data?.meta.total ?? 0;
 
   return (
     <div className="flex flex-col gap-12">
@@ -215,11 +216,27 @@ export default function OverviewPage() {
                     No open work orders. Create one from an asset page.
                   </p>
                 ) : (
-                  <div className="flex flex-col">
-                    {queueItems.map((workOrder) => (
-                      <WorkOrderRow key={workOrder.id} workOrder={workOrder} />
-                    ))}
-                  </div>
+                  <>
+                    <div className="flex flex-col">
+                      {queueItems.map((workOrder) => (
+                        <WorkOrderRow
+                          key={workOrder.id}
+                          workOrder={workOrder}
+                        />
+                      ))}
+                    </div>
+                    <div className="border-t border-surface-abyss pt-5">
+                      <NavLink
+                        to="/work-orders?status=OPEN"
+                        className="flex items-center justify-between gap-4 hover:text-text-platinum"
+                      >
+                        {queueTotal > queueItems.length
+                          ? `View all ${formatNumber(queueTotal)} open work orders`
+                          : 'View all open work orders'}
+                        <Icon icon={IconArrowRight} size={16} />
+                      </NavLink>
+                    </div>
+                  </>
                 )}
               </ErrorBoundary>
             </div>

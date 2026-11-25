@@ -19,8 +19,8 @@ describe('Heading', () => {
       </Heading>,
     );
     expect(
-      within(container).getByText('Industrial Maintenance Platform').tagName,
-    ).toBe('H1');
+      within(container).getByRole('heading', { level: 1 }),
+    ).toHaveTextContent('Industrial Maintenance Platform');
   });
 
   it('renders an h3 when level=3', () => {
@@ -45,7 +45,7 @@ describe('Heading', () => {
         Sign in
       </Heading>,
     );
-    expect(within(container).getByText('Sign in').className).toContain(
+    expect(within(container).getByRole('heading').className).toContain(
       'text-display',
     );
   });
@@ -57,5 +57,39 @@ describe('Heading', () => {
     const el = within(container).getByText('Assets');
     expect(el.className).toContain('custom-class');
     expect(el.className).toContain('text-heading');
+  });
+
+  it('gives page titles (level 1) the shared title gradient by default', () => {
+    const { container } = render(<Heading level={1}>Assets</Heading>);
+    const heading = within(container).getByRole('heading', { level: 1 });
+    expect(heading).toHaveTextContent('Assets');
+    expect(within(container).getByText('Assets')).toHaveClass('title-gradient');
+  });
+
+  it('keeps level 2 and 3 headings platinum with no gradient', () => {
+    const { container } = render(
+      <>
+        <Heading level={2}>Section</Heading>
+        <Heading level={3}>Subsection</Heading>
+      </>,
+    );
+    expect(container.querySelector('.title-gradient')).toBeNull();
+  });
+
+  it('lets a caller override the tone either way', () => {
+    const { container } = render(
+      <>
+        <Heading level={1} tone="platinum">
+          Plain
+        </Heading>
+        <Heading level={2} tone="gradient">
+          Lit
+        </Heading>
+      </>,
+    );
+    expect(within(container).getByText('Plain')).not.toHaveClass(
+      'title-gradient',
+    );
+    expect(within(container).getByText('Lit')).toHaveClass('title-gradient');
   });
 });

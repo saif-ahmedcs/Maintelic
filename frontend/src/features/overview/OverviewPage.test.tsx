@@ -489,3 +489,98 @@ describe('OverviewPage — alerts panel', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 });
+
+function workOrderFixture(index: number) {
+  return {
+    id: `wo-${index}`,
+    assetId: 'asset-1',
+    maintenancePlanId: null,
+    status: 'OPEN',
+    source: 'MANUAL',
+    priority: 'MEDIUM',
+    assignedToUserId: null,
+    description: `Inspect pump ${index}`,
+    openedAt: '2026-11-20T10:00:00.000Z',
+    assignedAt: null,
+    startedAt: null,
+    completedAt: null,
+    cancelledAt: null,
+    totalCost: null,
+    aiNote: null,
+    blockReason: null,
+    parts: [],
+  };
+}
+
+function mockQueue(total: number, shown: number) {
+  mockHappySiblingEndpoints();
+  mockTelemetrySummary({
+    readingCount: 0,
+    assetCount: 0,
+    since: '2026-11-09T10:00:00.000Z',
+  });
+  server.use(
+    http.get('/work-orders', ({ request }) => {
+      const limit = new URL(request.url).searchParams.get('limit');
+      const rows =
+        limit === '5'
+          ? Array.from({ length: shown }, (_, i) => workOrderFixture(i + 1))
+          : [];
+      return HttpResponse.json({
+        data: rows,
+        meta: {
+          page: 1,
+          limit: Number(limit),
+          total,
+          totalPages: Math.ceil(total / Number(limit)),
+        },
+      });
+    }),
+    http.get('/assets/:id', () =>
+      HttpResponse.json({
+        id: 'asset-1',
+        assetTypeId: 'type-1',
+        locationId: 'loc-1',
+        tag: 'PUMP-01',
+        manufacturer: null,
+        model: null,
+        criticality: 'MEDIUM',
+        status: 'OPERATIONAL',
+        installedAt: null,
+      }),
+    ),
+  );
+}
+
+describe('OverviewPage — work order queue footer link', () => {
+  it('shows the total and links to the open-status filter when more exist than are listed', async () => {
+    mockQueue(12, 5);
+    renderPage();
+
+    const link = await screen.findByRole('link', {
+      name: 'View all 12 open work orders',
+    });
+    expect(link).toHaveAttribute('href', '/work-orders?status=OPEN');
+    expect(screen.getAllByText(/^Inspect pump/)).toHaveLength(5);
+  });
+
+  it('uses the plain label when every open work order is already listed', async () => {
+    mockQueue(3, 3);
+    renderPage();
+
+    const link = await screen.findByRole('link', {
+      name: 'View all open work orders',
+    });
+    expect(link).toHaveAttribute('href', '/work-orders?status=OPEN');
+  });
+
+  it('shows no link when the queue is empty', async () => {
+    mockQueue(0, 0);
+    renderPage();
+
+    await screen.findByText(/No open work orders/);
+    expect(
+      screen.queryByRole('link', { name: /View all .*open work orders/ }),
+    ).toBeNull();
+  });
+});

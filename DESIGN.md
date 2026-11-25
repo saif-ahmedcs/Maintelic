@@ -152,6 +152,12 @@ Transparent row on a Liquid Kelp table panel, 16px vertical padding. Columns: wo
 
 61–96px Matter weight 500, line-height 1.0, letter-spacing -0.04em, white. Used on the login screen and the empty-state invitation (for example "Nothing is overdue"). Fluid sizing via clamp(2.5rem, ..., 3.8rem) for H1 and clamp(2.1rem, ..., 3rem) for H2. Operational screens use the 36px heading size instead, so the page title never competes with live data.
 
+### Page Title
+
+**Role:** Name of the page the person is on (Overview, Assets, Work orders, Telemetry, Alerts, Audit, and so on)
+
+Every page's `h1` uses the Heading component at level 1, which applies the title gradient automatically: Liquid Mist fading through Aurora Cyan into Teal Signal at a 100deg angle, the same treatment as the sign-in title. It is the one place text is not white or silver, so the page name reads as a different kind of thing from the data beneath it. The gradient sits on an inline span so it spans the text, not the container. Headings at level 2 and 3 stay Platinum. Entity titles on detail pages (an asset tag, a work-order reference) are data and stay Platinum. Contrast on Liquid Abyss runs from 14.8:1 to above 3:1, which holds for large text. Forced-colors mode falls back to the system text color.
+
 ### Oversized Kinetic Text
 
 **Role:** Section-spanning display
@@ -241,7 +247,7 @@ The source reference does not specify timings or easing. The rules below set the
 - Do not introduce bold (600+) or light (300-) weights at display sizes — the medium-only strategy is core to the mechanical confidence
 - Do not use white (#ffffff) for body text — reserve pure white for headings and nav, use silver (#bbc7c6) or mist (#edfffe) for body
 - Do not use Slate Deep (#707777) for any text — it fails WCAG AA on Liquid Abyss (3.52:1) and Liquid Kelp (2.88:1). Use silver or mist for labels; Slate Deep is limited to gridlines, borders, and marker dots
-- Do not apply the aurora gradient to text, borders, chart fills, or backgrounds larger than a single button — it loses luminosity at scale
+- Do not apply the aurora gradient to text, borders, chart fills, or backgrounds larger than a single button — it loses luminosity at scale. The page-title gradient is a separate Mist → Aurora Cyan → Teal Signal treatment and is the only gradient allowed on text
 - Do not use rounded corners above 16px — the system is sharp-rounded, not pill-shaped (buttons and status tags are 6px, cards are 16px)
 - Do not place light text on light-pink (#fde9ff) — the pink is a background for dark text, not a text color on dark surfaces
 - Alarm Critical (red) and Alarm Warning (amber) are reserved exclusively for CRITICAL and WARNING status indicators — never for decoration, KPI figures, or any other UI element. Do not add green; healthy/operational states stay in the existing palette

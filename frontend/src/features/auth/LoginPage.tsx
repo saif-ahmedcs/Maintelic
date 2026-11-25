@@ -124,7 +124,7 @@ export default function LoginPage() {
                 scale="heading-lg"
                 className="login-reveal !text-[clamp(2.5rem,9vw,3.5rem)]"
               >
-                <span className="login-title">Sign in</span>
+                Sign in
               </Heading>
 
               <p
