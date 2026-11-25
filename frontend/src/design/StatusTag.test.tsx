@@ -45,9 +45,9 @@ describe('StatusTag', () => {
 
   it('shows a decorative dot by default', () => {
     const { container } = render(<StatusTag status="OPERATIONAL" />);
-    const dot = container.querySelector('[aria-hidden="true"]');
-    expect(dot).toBeInTheDocument();
-    expect(dot).toHaveClass('rounded-full');
+    const marker = container.querySelector('[aria-hidden="true"]');
+    expect(marker).toBeInTheDocument();
+    expect(marker).toHaveClass('status-marker');
   });
 
   it('hides the dot when showDot is false', () => {
@@ -95,12 +95,29 @@ describe('StatusTag', () => {
     expect(el?.className).toContain(expectedClass);
   });
 
-  it('marks DECOMMISSIONED, CANCELLED and INACTIVE dots Slate Deep, not their text color', () => {
+  it('marks DECOMMISSIONED, CANCELLED and INACTIVE with an unlit Slate Deep marker, not their text color', () => {
     for (const status of ['DECOMMISSIONED', 'CANCELLED', 'INACTIVE'] as const) {
       const { container } = render(<StatusTag status={status} />);
-      const dot = container.querySelector('[aria-hidden="true"]');
-      expect(dot?.className).toContain('bg-surface-slate');
+      const marker = container.querySelector('[aria-hidden="true"]');
+      expect(marker).toHaveAttribute('data-tone', 'slate');
+      expect(marker).toHaveAttribute('data-lit', 'false');
     }
+  });
+
+  it.each<[StatusTagValue, string]>([
+    ['OPERATIONAL', 'mist'],
+    ['IN_PROGRESS', 'silver'],
+    ['BLOCKED', 'platinum'],
+    ['CRITICAL', 'critical'],
+    ['OUT', 'critical'],
+    ['LOW_STOCK', 'warning'],
+    ['OVERDUE_MAINTENANCE', 'warning'],
+    ['AUTO', 'lavender'],
+  ])('lights the %s marker in the %s tone', (status, tone) => {
+    const { container } = render(<StatusTag status={status} />);
+    const marker = container.querySelector('[aria-hidden="true"]');
+    expect(marker).toHaveAttribute('data-tone', tone);
+    expect(marker).toHaveAttribute('data-lit', 'true');
   });
 
   it('role tags (ADMIN, SUPERVISOR, TECHNICIAN, VIEWER) use the neutral silver tier', () => {

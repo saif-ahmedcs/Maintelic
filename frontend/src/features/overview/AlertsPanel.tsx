@@ -5,6 +5,7 @@ import { ErrorBoundary } from '../../design/ErrorBoundary';
 import { ErrorState } from '../../design/ErrorState';
 import { Eyebrow } from '../../design/Eyebrow';
 import { Icon } from '../../design/Icon';
+import { StatusMarker, type StatusMarkerTone } from '../../design/StatusMarker';
 import { Stat } from '../../design/Stat';
 import { Surface } from '../../design/Surface';
 import alertsBell from '../../assets/alerts-bell.png';
@@ -29,17 +30,14 @@ function summaryText(unreadCount: number, criticalCount: number): string {
 interface SeverityRowProps {
   label: string;
   count: number;
-  dotClassName: string;
+  tone: StatusMarkerTone;
 }
 
-function SeverityRow({ label, count, dotClassName }: SeverityRowProps) {
+function SeverityRow({ label, count, tone }: SeverityRowProps) {
   return (
     <li className="flex items-center justify-between gap-4">
       <span className="inline-flex items-center gap-2 font-display text-label font-normal uppercase text-text-silver">
-        <span
-          aria-hidden="true"
-          className={`size-1.5 shrink-0 rounded-full ${dotClassName}`}
-        />
+        <StatusMarker tone={tone} />
         {label}
       </span>
       <span className="font-display text-body font-normal tabular-nums text-text-platinum">
@@ -50,15 +48,12 @@ function SeverityRow({ label, count, dotClassName }: SeverityRowProps) {
 }
 
 function AlertsPanelContent() {
-  // Same query key as the nav badge in AppShell, so both share one request.
   const unreadAlerts = useQuery({
     queryKey: ['notifications', 'list', { status: 'UNREAD', limit: 5 }],
     queryFn: () => listNotifications({ status: 'UNREAD', limit: 5 }),
     refetchInterval: POLL_INTERVAL_MS,
   });
 
-  // Only the total is read from this one, so a single row is enough. The
-  // severity split is secondary: if it fails, the card still shows the count.
   const criticalAlerts = useQuery({
     queryKey: [
       'notifications',
@@ -73,8 +68,6 @@ function AlertsPanelContent() {
   const unreadCount = unreadAlerts.data?.meta.total ?? 0;
   const isClear = unreadAlerts.isSuccess && unreadCount === 0;
 
-  // CRITICAL_ASSET is the critical tier; OVERDUE_MAINTENANCE and LOW_STOCK
-  // are the warning tier (see StatusTag).
   const criticalCount = Math.min(
     criticalAlerts.data?.meta.total ?? 0,
     unreadCount,
@@ -148,15 +141,11 @@ function AlertsPanelContent() {
             <SeverityRow
               label="Critical"
               count={criticalCount}
-              dotClassName="bg-alarm-critical"
+              tone="critical"
             />
           )}
           {warningCount > 0 && (
-            <SeverityRow
-              label="Warning"
-              count={warningCount}
-              dotClassName="bg-alarm-warning"
-            />
+            <SeverityRow label="Warning" count={warningCount} tone="warning" />
           )}
         </ul>
       )}

@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import './design/theme.css';
 @import './design/interactions.css';
+@import './design/status-marker.css';
 
 @font-face {
   font-family: 'InterFallback';

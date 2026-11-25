@@ -1,4 +1,5 @@
 import type { ComponentPropsWithoutRef } from 'react';
+import { StatusMarker, type StatusMarkerTone } from './StatusMarker';
 
 export type StatusTagValue =
   | 'OPERATIONAL'
@@ -35,45 +36,48 @@ interface StatusTagOwnProps {
 export type StatusTagProps = StatusTagOwnProps &
   Omit<ComponentPropsWithoutRef<'span'>, keyof StatusTagOwnProps>;
 
-const STATUS_STYLE: Record<StatusTagValue, { text: string; dot: string }> = {
+const STATUS_STYLE: Record<
+  StatusTagValue,
+  { text: string; marker: StatusMarkerTone }
+> = {
   // OPERATIONAL / OPEN / COMPLETED tier — Liquid Mist
-  OPERATIONAL: { text: 'text-text-mist', dot: 'bg-text-mist' },
-  OPEN: { text: 'text-text-mist', dot: 'bg-text-mist' },
-  COMPLETED: { text: 'text-text-mist', dot: 'bg-text-mist' },
-  RESOLVED: { text: 'text-text-mist', dot: 'bg-text-mist' },
-  ACTIVE: { text: 'text-text-mist', dot: 'bg-text-mist' },
+  OPERATIONAL: { text: 'text-text-mist', marker: 'mist' },
+  OPEN: { text: 'text-text-mist', marker: 'mist' },
+  COMPLETED: { text: 'text-text-mist', marker: 'mist' },
+  RESOLVED: { text: 'text-text-mist', marker: 'mist' },
+  ACTIVE: { text: 'text-text-mist', marker: 'mist' },
 
   // UNDER_MAINTENANCE / ASSIGNED / IN_PROGRESS tier — Silver Mist
-  UNDER_MAINTENANCE: { text: 'text-text-silver', dot: 'bg-text-silver' },
-  ASSIGNED: { text: 'text-text-silver', dot: 'bg-text-silver' },
-  IN_PROGRESS: { text: 'text-text-silver', dot: 'bg-text-silver' },
-  ACKNOWLEDGED: { text: 'text-text-silver', dot: 'bg-text-silver' },
-  ADMIN: { text: 'text-text-silver', dot: 'bg-text-silver' },
-  SUPERVISOR: { text: 'text-text-silver', dot: 'bg-text-silver' },
-  TECHNICIAN: { text: 'text-text-silver', dot: 'bg-text-silver' },
-  VIEWER: { text: 'text-text-silver', dot: 'bg-text-silver' },
+  UNDER_MAINTENANCE: { text: 'text-text-silver', marker: 'silver' },
+  ASSIGNED: { text: 'text-text-silver', marker: 'silver' },
+  IN_PROGRESS: { text: 'text-text-silver', marker: 'silver' },
+  ACKNOWLEDGED: { text: 'text-text-silver', marker: 'silver' },
+  ADMIN: { text: 'text-text-silver', marker: 'silver' },
+  SUPERVISOR: { text: 'text-text-silver', marker: 'silver' },
+  TECHNICIAN: { text: 'text-text-silver', marker: 'silver' },
+  VIEWER: { text: 'text-text-silver', marker: 'silver' },
 
   // BLOCKED tier — Platinum
-  BLOCKED: { text: 'text-text-platinum', dot: 'bg-text-platinum' },
-  UNREAD: { text: 'text-text-platinum', dot: 'bg-text-platinum' },
+  BLOCKED: { text: 'text-text-platinum', marker: 'platinum' },
+  UNREAD: { text: 'text-text-platinum', marker: 'platinum' },
 
   // CRITICAL tier — Alarm Critical
-  CRITICAL: { text: 'text-alarm-critical', dot: 'bg-alarm-critical' },
-  CRITICAL_ASSET: { text: 'text-alarm-critical', dot: 'bg-alarm-critical' },
+  CRITICAL: { text: 'text-alarm-critical', marker: 'critical' },
+  CRITICAL_ASSET: { text: 'text-alarm-critical', marker: 'critical' },
   // OUT (zero stock) — more severe than LOW_STOCK, same tier as CRITICAL
-  OUT: { text: 'text-alarm-critical', dot: 'bg-alarm-critical' },
+  OUT: { text: 'text-alarm-critical', marker: 'critical' },
 
   // WARNING tier — Alarm Warning
-  OVERDUE_MAINTENANCE: { text: 'text-alarm-warning', dot: 'bg-alarm-warning' },
-  LOW_STOCK: { text: 'text-alarm-warning', dot: 'bg-alarm-warning' },
+  OVERDUE_MAINTENANCE: { text: 'text-alarm-warning', marker: 'warning' },
+  LOW_STOCK: { text: 'text-alarm-warning', marker: 'warning' },
 
   // AUTO source tag — Lavender Phosphor
-  AUTO: { text: 'text-accent-lavender', dot: 'bg-accent-lavender' },
+  AUTO: { text: 'text-accent-lavender', marker: 'lavender' },
 
-  // DECOMMISSIONED / CANCELLED / INACTIVE — Silver Mist text, Slate Deep dot
-  DECOMMISSIONED: { text: 'text-text-silver', dot: 'bg-surface-slate' },
-  CANCELLED: { text: 'text-text-silver', dot: 'bg-surface-slate' },
-  INACTIVE: { text: 'text-text-silver', dot: 'bg-surface-slate' },
+  // DECOMMISSIONED / CANCELLED / INACTIVE — Silver Mist text, unlit Slate Deep marker
+  DECOMMISSIONED: { text: 'text-text-silver', marker: 'slate' },
+  CANCELLED: { text: 'text-text-silver', marker: 'slate' },
+  INACTIVE: { text: 'text-text-silver', marker: 'slate' },
 };
 
 function toLabel(status: StatusTagValue): string {
@@ -114,17 +118,7 @@ export function StatusTag({
   return (
     <span className={classes} {...rest}>
       {showDot && (
-        <span
-          aria-hidden="true"
-          className={[
-            'size-1.5',
-            'shrink-0',
-            'rounded-full',
-            'transition-colors',
-            'duration-(--motion-duration-fast)',
-            style.dot,
-          ].join(' ')}
-        />
+        <StatusMarker tone={style.marker} lit={style.marker !== 'slate'} />
       )}
       {toLabel(status)}
     </span>

@@ -114,15 +114,17 @@ Surface Card on Liquid Kelp with the asset tag in Platinum at 24px Matter 500 (f
 
 6px radius, 4px vertical / 10px horizontal padding, uppercase Matter 400 at 10px with 0.15em tracking. Background is Liquid Abyss with a 1px Slate Deep inset outline. Color carries the state; shape stays the same for every state so the table stays scannable.
 
+The marker is the shared `StatusMarker` primitive (`src/design/StatusMarker.tsx`, `status-marker.css`), also used for the severity split on the Overview alerts card. It is a lens seated in a housing: 8px housing, 6px lens inset 1px, nested radii (2px / 1px, the tag's 6px radius at marker scale), a single 1px top-light edge on the lens, and a housing tinted from the state color over Liquid Deep so it renders the same on every surface. It is static (no pulse, glow, or drop shadow). A _lit_ marker means the state is in play; an _unlit_ marker (hollow housing, dim lens, Slate Deep) means it has ended.
+
 | State                                      | Text color        | Marker                           |
 | ------------------------------------------ | ----------------- | -------------------------------- |
-| OPERATIONAL / OPEN / COMPLETED             | Liquid Mist       | Small 6px dot, Liquid Mist       |
-| UNDER_MAINTENANCE / ASSIGNED / IN_PROGRESS | Silver Mist       | Small 6px dot, Silver Mist       |
-| BLOCKED / BACKLOG OVERDUE                  | Platinum          | Small 6px dot, Platinum          |
-| CRITICAL                                   | Alarm Critical    | Small 6px dot, Alarm Critical    |
-| WARNING                                    | Alarm Warning     | Small 6px dot, Alarm Warning     |
-| AUTO                                       | Lavender Phosphor | Small 6px dot, Lavender Phosphor |
-| DECOMMISSIONED / CANCELLED                 | Silver Mist       | Small 6px dot, Slate Deep        |
+| OPERATIONAL / OPEN / COMPLETED             | Liquid Mist       | Lit marker, Liquid Mist       |
+| UNDER_MAINTENANCE / ASSIGNED / IN_PROGRESS | Silver Mist       | Lit marker, Silver Mist       |
+| BLOCKED / BACKLOG OVERDUE                  | Platinum          | Lit marker, Platinum          |
+| CRITICAL                                   | Alarm Critical    | Lit marker, Alarm Critical    |
+| WARNING                                    | Alarm Warning     | Lit marker, Alarm Warning     |
+| AUTO                                       | Lavender Phosphor | Lit marker, Lavender Phosphor |
+| DECOMMISSIONED / CANCELLED                 | Silver Mist       | Unlit marker, Slate Deep         |
 
 > **Correction:** DECOMMISSIONED/CANCELLED originally used Slate Deep for the status text. Slate Deep (`#707777`) on Liquid Abyss measures 3.52:1 and on Liquid Kelp 2.88:1 — both fail WCAG AA (4.5:1) for normal text. The label text now uses Silver Mist (7.58:1 on Kelp, 9.28:1 on Abyss); Slate Deep is kept only for the marker dot.
 

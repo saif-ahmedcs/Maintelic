@@ -5,6 +5,7 @@ import { NavLink } from '../design/NavLink';
 import { Eyebrow } from '../design/Eyebrow';
 import { Heading } from '../design/Heading';
 import { Stat } from '../design/Stat';
+import { StatusMarker, type StatusMarkerTone } from '../design/StatusMarker';
 import { StatusTag, type StatusTagValue } from '../design/StatusTag';
 import { Field } from '../design/Field';
 import { Table, type TableColumn } from '../design/Table';
@@ -19,6 +20,16 @@ import { EmptyState } from '../design/EmptyState';
 import { ErrorState } from '../design/ErrorState';
 import { Skeleton } from '../design/Skeleton';
 import { Sphere } from '../design/Sphere';
+
+const MARKER_TONES: StatusMarkerTone[] = [
+  'mist',
+  'silver',
+  'platinum',
+  'critical',
+  'warning',
+  'lavender',
+  'slate',
+];
 
 const ALL_STATUSES: StatusTagValue[] = [
   'OPERATIONAL',
@@ -327,6 +338,20 @@ export default function DesignShowcase() {
             <StatusTag key={status} status={status} showDot={false} />
           ))}
         </Row>
+      </Section>
+
+      <Section title="StatusMarker">
+        {(['abyss', 'deep', 'kelp'] as const).map((surface) => (
+          <Row key={surface}>
+            <div
+              className={`flex items-center gap-4 rounded-small p-3 bg-surface-${surface}`}
+            >
+              {MARKER_TONES.map((tone) => (
+                <StatusMarker key={tone} tone={tone} lit={tone !== 'slate'} />
+              ))}
+            </div>
+          </Row>
+        ))}
       </Section>
 
       <Section title="Field">
