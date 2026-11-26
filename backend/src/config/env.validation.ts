@@ -53,6 +53,13 @@ export const envValidationSchema = Joi.object({
   MQTT_HOST: Joi.string().required(),
   MQTT_PORT: Joi.number().required(),
   MQTT_BACKEND_PASSWORD: Joi.string().required(),
+  // Optional override of the backend's stable MQTT client id (default
+  // "maintelic-backend", see mqtt-connection-options.ts). Blank = default.
+  MQTT_BACKEND_CLIENT_ID: Joi.string()
+    .allow('')
+    .pattern(/^[A-Za-z0-9._-]+$/)
+    .max(128)
+    .optional(),
 
   AI_INSIGHTS_ENABLED: Joi.boolean().default(false),
   GROQ_API_KEY: Joi.when('AI_INSIGHTS_ENABLED', {

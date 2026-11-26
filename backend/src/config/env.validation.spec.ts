@@ -77,6 +77,42 @@ describe('envValidationSchema — MQTT auth', () => {
   });
 });
 
+describe('envValidationSchema — MQTT_BACKEND_CLIENT_ID (BJM-3)', () => {
+  it('is optional: the backend falls back to its default stable client id', () => {
+    const { error, value } = envValidationSchema.validate(baseEnv);
+    expect(error).toBeUndefined();
+    expect(value.MQTT_BACKEND_CLIENT_ID).toBeUndefined();
+  });
+
+  it('accepts a blank value (an unset line copied from .env.example)', () => {
+    const { error } = envValidationSchema.validate({
+      ...baseEnv,
+      MQTT_BACKEND_CLIENT_ID: '',
+    });
+    expect(error).toBeUndefined();
+  });
+
+  it('accepts a custom id', () => {
+    const { error } = envValidationSchema.validate({
+      ...baseEnv,
+      MQTT_BACKEND_CLIENT_ID: 'maintelic-backend-prod_1.eu',
+    });
+    expect(error).toBeUndefined();
+  });
+
+  it.each(['has space', 'slash/ed', 'ünïcode', 'a'.repeat(129)])(
+    'rejects an unusable id (%s) at boot instead of at the broker',
+    (clientId) => {
+      const { error } = envValidationSchema.validate({
+        ...baseEnv,
+        MQTT_BACKEND_CLIENT_ID: clientId,
+      });
+      expect(error).toBeDefined();
+      expect(error?.message).toContain('MQTT_BACKEND_CLIENT_ID');
+    },
+  );
+});
+
 describe('envValidationSchema — production JWT_SECRET boot check', () => {
   it('fails to boot in production with a secret shorter than 32 characters', () => {
     const { error } = envValidationSchema.validate({

@@ -72,6 +72,8 @@ export type DeferredPersistOutcome =
 export class TelemetryService {
   private readonly logger = new Logger(TelemetryService.name);
 
+  private readonly latestCacheWrites = new Map<string, Promise<void>>();
+
   constructor(
     @InjectRepository(TelemetryReading)
     private readonly readings: Repository<TelemetryReading>,
@@ -300,14 +302,7 @@ export class TelemetryService {
   ): Promise<void> {
     const { reading, correlationId } = job;
     try {
-      if (mode === 'deferred') {
-        await this.setLatestUnlessNewer(reading);
-      } else {
-        await this.redis.set(
-          latestCacheKey(reading.assetId),
-          JSON.stringify(reading),
-        );
-      }
+      await this.setLatestUnlessNewer(reading);
       const jobData: TelemetryJobData = { reading, correlationId };
       await this.telemetryQueue.add('reading', jobData, TELEMETRY_JOB_OPTIONS);
     } catch (err) {
@@ -321,7 +316,26 @@ export class TelemetryService {
     }
   }
 
-  private async setLatestUnlessNewer(
+  private setLatestUnlessNewer(reading: TelemetryReadingDto): Promise<void> {
+    const { assetId } = reading;
+    const previous = this.latestCacheWrites.get(assetId) ?? Promise.resolve();
+    const write = previous.then(() => this.writeLatestUnlessNewer(reading));
+
+    const settled = write.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.latestCacheWrites.set(assetId, settled);
+    void settled.then(() => {
+      if (this.latestCacheWrites.get(assetId) === settled) {
+        this.latestCacheWrites.delete(assetId);
+      }
+    });
+
+    return write;
+  }
+
+  private async writeLatestUnlessNewer(
     reading: TelemetryReadingDto,
   ): Promise<void> {
     const key = latestCacheKey(reading.assetId);

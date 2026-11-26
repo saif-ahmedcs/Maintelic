@@ -38,6 +38,7 @@ async function bootstrap() {
       host: process.env.MQTT_HOST as string,
       port: process.env.MQTT_PORT as string,
       password: process.env.MQTT_BACKEND_PASSWORD as string,
+      clientId: process.env.MQTT_BACKEND_CLIENT_ID,
     }),
   });
 

@@ -56,11 +56,36 @@ A transient failure moves the reading straight into the `telemetry-persistence` 
 
 **Idempotency.** The reading's primary key is generated once at ingest and carried in the job, and the queue job id is that same id. A retry after an ambiguous failure (the commit succeeded, the connection died before the acknowledgement) therefore hits the primary key instead of storing a duplicate, and a retried hand-off cannot enqueue the same reading twice. No migration is needed.
 
-**Remaining limits, stated plainly.** The reading is only lost if Postgres _and_ Redis are unreachable at the same moment: the hand-off to Redis is retried and time-boxed, then fails loudly (`TelemetryNotPersistedError`, logged with the full payload). The process crashing in the few milliseconds between PUBACK and the hand-off is the one window a broker-side fix (persistent MQTT session plus a PUBACK deferred until the reading is stored) would close; that was not done because it needs a fixed client id and shared subscriptions across replicas. Redis runs with `noeviction`, so an outage of many hours at fleet scale is bounded by Redis memory, not by the retry window.
+**Remaining limits, stated plainly.** The reading is only lost if Postgres _and_ Redis are unreachable at the same moment: the hand-off to Redis is retried and time-boxed, then fails loudly (`TelemetryNotPersistedError`, logged with the full payload). The process crashing in the few milliseconds between PUBACK and the hand-off is the one window a PUBACK deferred until the reading is stored would close; that is still not done. The persistent session (BJM-3, below) covers a different gap: readings published while the backend is not connected at all. Redis runs with `noeviction`, so an outage of many hours at fleet scale is bounded by Redis memory, not by the retry window.
 
 `backend/test/telemetry-persistence-recovery.e2e-spec.ts` runs against a real Redis and BullMQ (Postgres is a controllable fake) and covers an outage that outlasts several retries, a process restart mid-outage, an ambiguous commit, and an unknown asset.
 
 **What would change at real production scale:** monthly partitioning of `telemetry_readings`, explicitly out of scope here but called out rather than silently ignored.
+
+## The backend's MQTT session is persistent (BJM-3)
+
+**The problem.** The subscription asked for QoS 1, but the connection used MQTT.js's defaults: a random client id and `clean: true`. The broker therefore created a fresh session on every connect and discarded it on disconnect, so QoS 1 had nothing to attach to. Every reading published while the backend was restarting, crashing or cut off from the broker was dropped by the broker: 10-60+ readings per asset per deploy, and condition monitoring blind for that period.
+
+**The fix.** The backend connects with a fixed client id (`maintelic-backend`, overridable with `MQTT_BACKEND_CLIENT_ID`) and `clean: false` (`mqtt-connection-options.ts`). The broker keeps the subscription and queues QoS 1 messages for that id while the backend is away, and delivers them when it reconnects. MQTT.js refuses `clean: false` without a client id, and a blank override falls back to the default so the id can never end up empty. If the broker ever loses the session, MQTT.js re-subscribes on reconnect (it sees `sessionPresent=false`), so the backend does not end up connected but deaf.
+
+**Three changes that make the persistent session actually deliver.** The client options alone were not enough:
+
+| Change                                                                                                                   | Why                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker/mosquitto.conf`: `max_queued_messages 100000`                                                                    | The default is 1000 per offline client, under 4 minutes of telemetry at 5 readings/s, and Mosquitto drops the _newest_ messages beyond it. 100000 is about 5.5 hours at that rate; raise it with the fleet. |
+| `docker/mosquitto.conf`: `autosave_interval 30`, `persistent_client_expiration 1d`                                       | Queued state is written to disk every 30 s instead of every 30 minutes, and a session nobody returns to is forgotten after a day.                                                                           |
+| `recordedAt` window is asymmetric: 5 minutes ahead (`RECORDED_AT_FUTURE_TOLERANCE_MS`), 24 hours behind (`..._PAST_...`) | The controller used to reject anything more than 5 minutes off the clock, which would have discarded the replayed backlog after any outage longer than that. A forged _future_ timestamp is still rejected. |
+
+**Replay is concurrent, so the "latest" cache write is ordered.** The backlog, the live readings that follow it and the persistence worker's replays all run at once. The cache write now never replaces a newer reading with an older one, and writes for one asset are chained so two of them cannot interleave (read "empty", read "empty", write new, write old). Condition monitoring is unaffected: it reads the newest rows from Postgres, not the cache or the arrival order.
+
+**Tests.** `mqtt-persistent-session.e2e-spec.ts` runs Nest's real MQTT server with the production options against the broker: backlog delivered in order after a restart, repeated outages, a backlog larger than 1000, and a clean-session control that shows the loss this fixes. `telemetry-offline-replay.e2e-spec.ts` runs the whole app: stop it, publish (including readings older than the old 5-minute window), restart it, and expect every row in Postgres and the newest as "latest". Other e2e suites use a unique client id and a clean session per app (`test/utils/mqtt.ts`) so they do not inherit each other's queues.
+
+**Remaining limits, stated plainly.**
+
+- **One backend instance per client id.** Two connections with the same id make the broker disconnect the older one, and they then keep taking the connection from each other. A rolling deploy with overlapping instances would flap. Running several instances needs a distinct `MQTT_BACKEND_CLIENT_ID` each (and then each receives every reading), or shared subscriptions, which are not used.
+- **A broker crash loses at most the last 30 seconds of queued state** (the autosave interval). A clean broker restart, or a crash after an autosave, loses nothing; both were tested.
+- **Outage bounds.** Readings are kept for at most one day (`persistent_client_expiration`, matching the 24 h `recordedAt` window) and at most 100000 queued messages; beyond that the broker drops the newest.
+- The PUBACK is still sent before the handler finishes (see BJM-2), so a backend crash mid-handler can still lose the message it was handling.
 
 ## NestJS pinned to the 11.x line
 

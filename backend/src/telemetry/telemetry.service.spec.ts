@@ -428,6 +428,131 @@ describe('TelemetryService', () => {
     });
   });
 
+  describe('live reading vs. the cached latest (BJM-3: backlog replayed after an outage)', () => {
+    it('does not overwrite a newer cached reading with an older live one', async () => {
+      redis.get.mockResolvedValue(
+        JSON.stringify({ ...reading, recordedAt: '2026-09-24T10:05:00.000Z' }),
+      );
+
+      await service.ingest(reading);
+
+      expect(readingRepo.insert).toHaveBeenCalledTimes(1);
+      expect(redis.set).not.toHaveBeenCalled();
+      // the row is stored, so condition monitoring is still triggered
+      expect(queue.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('overwrites the cache when the live reading is newer than the cached one', async () => {
+      redis.get.mockResolvedValue(
+        JSON.stringify({ ...reading, recordedAt: '2026-09-24T09:00:00.000Z' }),
+      );
+
+      await service.ingest(reading);
+
+      expect(redis.set).toHaveBeenCalledWith(
+        `telemetry:latest:${reading.assetId}`,
+        JSON.stringify(reading),
+      );
+    });
+
+    it('overwrites the cache when the live reading carries the same timestamp', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(reading));
+
+      await service.ingest(reading);
+
+      expect(redis.set).toHaveBeenCalledTimes(1);
+    });
+
+    it('overwrites an unreadable cache entry', async () => {
+      redis.get.mockResolvedValue('{not json');
+
+      await service.ingest(reading);
+
+      expect(redis.set).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not throw when reading the cache fails, and the reading stays persisted', async () => {
+      redis.get.mockRejectedValue(new Error('redis down'));
+
+      await expect(service.ingest(reading)).resolves.toBeUndefined();
+
+      expect(readingRepo.insert).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('concurrent cache writes for one asset (BJM-3)', () => {
+    // A Redis whose reads and writes take a moment, so that overlapping
+    // handlers really do interleave, as they do when the backlog is replayed.
+    const useSlowRedis = () => {
+      const store = new Map<string, string>();
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+      redis.get.mockImplementation(async (key: string) => {
+        const value = store.get(key) ?? null;
+        await tick();
+        return value;
+      });
+      redis.set.mockImplementation(async (key: string, value: string) => {
+        await tick();
+        store.set(key, value);
+        return 'OK';
+      });
+      return store;
+    };
+    const at = (
+      offsetMs: number,
+      temperature: number,
+    ): TelemetryReadingDto => ({
+      ...reading,
+      temperature,
+      recordedAt: new Date(
+        Date.parse(reading.recordedAt) + offsetMs,
+      ).toISOString(),
+    });
+    const key = `telemetry:latest:${reading.assetId}`;
+
+    it('keeps the newest reading when an older one is handled concurrently and finishes last', async () => {
+      const store = useSlowRedis();
+
+      await Promise.all([
+        service.ingest(at(1000, 99)),
+        service.ingest(at(0, 10)),
+      ]);
+
+      expect(JSON.parse(store.get(key) as string).temperature).toBe(99);
+    });
+
+    it('keeps the newest reading whichever order a replayed backlog is handled in', async () => {
+      const store = useSlowRedis();
+      const backlog = [3, 1, 4, 0, 2, 5].map((n) => at(n * 1000, n));
+
+      await Promise.all(backlog.map((r) => service.ingest(r)));
+
+      expect(JSON.parse(store.get(key) as string).temperature).toBe(5);
+    });
+
+    it('does not let one failed cache write block or poison the next one', async () => {
+      const store = useSlowRedis();
+      redis.set.mockRejectedValueOnce(new Error('redis down'));
+
+      await service.ingest(at(0, 10));
+      await service.ingest(at(1000, 99));
+
+      expect(JSON.parse(store.get(key) as string).temperature).toBe(99);
+    });
+
+    it('does not keep per-asset bookkeeping once the writes are done', async () => {
+      useSlowRedis();
+
+      await service.ingest(at(0, 10));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(
+        (service as unknown as { latestCacheWrites: Map<string, unknown> })
+          .latestCacheWrites.size,
+      ).toBe(0);
+    });
+  });
+
   it('does not throw when Redis fails, and the reading stays persisted', async () => {
     redis.set.mockRejectedValue(new Error('redis down'));
 

@@ -1,23 +1,34 @@
 import mqtt, { MqttClient } from 'mqtt';
 import { Transport } from '@nestjs/microservices';
+import { randomUUID } from 'node:crypto';
 import {
   buildBackendMqttOptions,
   buildMqttUrl,
+  DEFAULT_MQTT_BACKEND_CLIENT_ID,
 } from './../../src/common/mqtt/mqtt-connection-options';
 
 export const MQTT_SIMULATOR_USERNAME = 'simulator';
 
+type BackendMqttTestOptions = Omit<
+  ReturnType<typeof buildBackendMqttOptions>,
+  'clean'
+> & { clean: boolean };
+
 export function backendMqttMicroserviceOptions(): {
   transport: Transport.MQTT;
-  options: ReturnType<typeof buildBackendMqttOptions>;
+  options: BackendMqttTestOptions;
 } {
   return {
     transport: Transport.MQTT,
-    options: buildBackendMqttOptions({
-      host: process.env.MQTT_HOST as string,
-      port: process.env.MQTT_PORT as string,
-      password: process.env.MQTT_BACKEND_PASSWORD as string,
-    }),
+    options: {
+      ...buildBackendMqttOptions({
+        host: process.env.MQTT_HOST as string,
+        port: process.env.MQTT_PORT as string,
+        password: process.env.MQTT_BACKEND_PASSWORD as string,
+        clientId: `${DEFAULT_MQTT_BACKEND_CLIENT_ID}-e2e-${randomUUID()}`,
+      }),
+      clean: true,
+    },
   };
 }
 

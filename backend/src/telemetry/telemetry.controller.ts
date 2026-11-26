@@ -5,7 +5,8 @@ import { validate } from 'class-validator';
 import { randomUUID } from 'node:crypto';
 import { RequestContext } from '../common/context/request-context';
 import {
-  RECORDED_AT_TOLERANCE_MS,
+  RECORDED_AT_FUTURE_TOLERANCE_MS,
+  RECORDED_AT_PAST_TOLERANCE_MS,
   TelemetryReadingDto,
 } from './dto/telemetry-reading.dto';
 import { TelemetryService } from './telemetry.service';
@@ -47,12 +48,20 @@ export class TelemetryController {
         return;
       }
 
-      const driftMs = Math.abs(Date.now() - Date.parse(reading.recordedAt));
-      if (driftMs > RECORDED_AT_TOLERANCE_MS) {
+      const skewMs = Date.parse(reading.recordedAt) - Date.now();
+      if (
+        skewMs > RECORDED_AT_FUTURE_TOLERANCE_MS ||
+        -skewMs > RECORDED_AT_PAST_TOLERANCE_MS
+      ) {
+        const direction = skewMs > 0 ? 'ahead of' : 'behind';
+        const toleranceMs =
+          skewMs > 0
+            ? RECORDED_AT_FUTURE_TOLERANCE_MS
+            : RECORDED_AT_PAST_TOLERANCE_MS;
         this.logger.warn(
           `Rejected telemetry reading for asset ${reading.assetId}: recordedAt ` +
-            `${reading.recordedAt} is ${driftMs}ms from the server clock, ` +
-            `outside the ${RECORDED_AT_TOLERANCE_MS}ms tolerance — a publisher-controlled ` +
+            `${reading.recordedAt} is ${Math.abs(skewMs)}ms ${direction} the server clock, ` +
+            `outside the ${toleranceMs}ms tolerance — a publisher-controlled ` +
             `timestamp this far off cannot be trusted`,
         );
         return;

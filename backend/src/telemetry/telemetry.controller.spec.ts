@@ -1,5 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { RECORDED_AT_TOLERANCE_MS } from './dto/telemetry-reading.dto';
+import {
+  RECORDED_AT_FUTURE_TOLERANCE_MS,
+  RECORDED_AT_PAST_TOLERANCE_MS,
+} from './dto/telemetry-reading.dto';
 import { TelemetryController } from './telemetry.controller';
 
 describe('TelemetryController', () => {
@@ -37,7 +40,7 @@ describe('TelemetryController', () => {
 
   it('ingests a reading just inside the tolerance window', async () => {
     const justInside = new Date(
-      Date.now() + RECORDED_AT_TOLERANCE_MS - 1000,
+      Date.now() + RECORDED_AT_FUTURE_TOLERANCE_MS - 1000,
     ).toISOString();
 
     await controller.handleTelemetry({
@@ -50,7 +53,7 @@ describe('TelemetryController', () => {
 
   it('drops a reading whose recordedAt is forged far in the future, without ingesting it', async () => {
     const farFuture = new Date(
-      Date.now() + RECORDED_AT_TOLERANCE_MS + 60_000,
+      Date.now() + RECORDED_AT_FUTURE_TOLERANCE_MS + 60_000,
     ).toISOString();
 
     await controller.handleTelemetry({
@@ -61,12 +64,51 @@ describe('TelemetryController', () => {
     expect(telemetryService.ingest).not.toHaveBeenCalled();
   });
 
-  it('drops a reading whose recordedAt is far in the past, without ingesting it', async () => {
-    const farPast = new Date(
-      Date.now() - RECORDED_AT_TOLERANCE_MS - 60_000,
+  it('ingests a reading the broker queued for hours while the backend was down (BJM-3)', async () => {
+    const queuedForHours = new Date(
+      Date.now() - 6 * 60 * 60 * 1000,
     ).toISOString();
 
-    await controller.handleTelemetry({ ...validPayload, recordedAt: farPast });
+    await controller.handleTelemetry({
+      ...validPayload,
+      recordedAt: queuedForHours,
+    });
+
+    expect(telemetryService.ingest).toHaveBeenCalledTimes(1);
+  });
+
+  it('ingests a reading just inside the past tolerance window', async () => {
+    const justInside = new Date(
+      Date.now() - RECORDED_AT_PAST_TOLERANCE_MS + 60_000,
+    ).toISOString();
+
+    await controller.handleTelemetry({
+      ...validPayload,
+      recordedAt: justInside,
+    });
+
+    expect(telemetryService.ingest).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a reading whose recordedAt is older than the broker can have queued it, without ingesting it', async () => {
+    const tooOld = new Date(
+      Date.now() - RECORDED_AT_PAST_TOLERANCE_MS - 60_000,
+    ).toISOString();
+
+    await controller.handleTelemetry({ ...validPayload, recordedAt: tooOld });
+
+    expect(telemetryService.ingest).not.toHaveBeenCalled();
+  });
+
+  it('keeps the future tolerance tight even though the past tolerance is wide', async () => {
+    const slightlyAhead = new Date(
+      Date.now() + RECORDED_AT_FUTURE_TOLERANCE_MS + 60_000,
+    ).toISOString();
+
+    await controller.handleTelemetry({
+      ...validPayload,
+      recordedAt: slightlyAhead,
+    });
 
     expect(telemetryService.ingest).not.toHaveBeenCalled();
   });
