@@ -20,6 +20,7 @@ flowchart TB
         TELCTRL["TelemetryController - @EventPattern('factory/+/asset/+/telemetry')"]
         SERVICES["Services: TypeORM repos, dataSource.transaction(...), pessimistic row locks"]
         PROCESSOR["ConditionMonitoringProcessor (BullMQ worker)"]
+        PERSISTER["TelemetryPersistenceProcessor (BullMQ worker, retries inserts that failed transiently)"]
         CRON["ScheduledChecksService (@Cron, hourly: due plans -> PLANNED work order + overdue notification, low stock)"]
         AI["AiInsightsService + GroqDiagnosticProvider (hard timeout, null fallback, never throws)"]
     end
@@ -34,6 +35,9 @@ flowchart TB
     TELCTRL -->|"validate DTO; drop + log if malformed, never crash"| TELCTRL
     TELCTRL -->|"write latest reading + enqueue job"| REDIS
     TELCTRL -->|"direct insert (just an insert, not 'thinking')"| PG
+    TELCTRL -->|"insert failed transiently: telemetry-persistence job"| REDIS
+    REDIS -->|"telemetry-persistence job"| PERSISTER
+    PERSISTER -->|"insert with backoff until stored, then cache + enqueue"| PG
 
     REDIS -->|"telemetry-processing job"| PROCESSOR
     PROCESSOR -->|"fetch diagnostic note BEFORE opening transaction"| AI
@@ -48,7 +52,7 @@ flowchart TB
 
 **HTTP path (most endpoints):** `CLIENT → GUARDS → CTRL → SERVICES → PG`. Every mutating write inside `SERVICES` happens inside a `dataSource.transaction(...)` and calls `AuditService.record(...)` with the _same_ transaction manager, so a business write and its audit entry commit or roll back together — never one without the other.
 
-**Telemetry path:** the simulator is a separate OS process; it never talks to Postgres or the backend directly — only to Mosquitto. `TelemetryController` does the minimum to accept a reading quickly: validate, cache, enqueue, and a direct insert. No analysis happens on this hot path.
+**Telemetry path:** the simulator is a separate OS process; it never talks to Postgres or the backend directly — only to Mosquitto. `TelemetryController` does the minimum to accept a reading quickly: validate, direct insert, then cache and enqueue. No analysis happens on this hot path. If the insert fails with a transient Postgres error, the reading is not dropped: it is handed to the durable `telemetry-persistence` queue and `TelemetryPersistenceProcessor` retries it with backoff until it is stored (and only then caches and enqueues it). Only permanent errors, such as an unknown asset, drop a reading (see `design-decisions.md`).
 
 **Background worker / condition-monitoring path:** `ConditionMonitoringProcessor` consumes the queued job off the hot path, evaluates the deterministic rule, and — only if it trips — calls Groq _before_ opening the database transaction. If Groq times out, errors, or is disabled, `AI` returns `null` and the transaction proceeds exactly as it would have without it. The duplicate-prevention check inside this path is backed by the partial unique index on `work_orders`, so even a worker race can't create two open AUTO work orders for the same asset.
 

@@ -13,23 +13,60 @@ import { TelemetryReadingResponseDto } from './dto/telemetry-reading-response.dt
 import { TelemetrySummaryResponseDto } from './dto/telemetry-summary-response.dto';
 import { TelemetryReading } from './entities/telemetry-reading.entity';
 import { TelemetryJobData } from './interfaces/telemetry-job-data.interface';
+import { TelemetryPersistenceJobData } from './interfaces/telemetry-persistence-job-data.interface';
 import {
+  classifyPersistError,
+  TelemetryNotPersistedError,
+} from './telemetry-persist-error';
+import {
+  TELEMETRY_HANDOFF_ATTEMPT_TIMEOUT_MS,
+  TELEMETRY_HANDOFF_ATTEMPTS,
+  TELEMETRY_HANDOFF_RETRY_DELAY_MS,
   TELEMETRY_JOB_OPTIONS,
+  TELEMETRY_PERSISTENCE_JOB_OPTIONS,
+  TELEMETRY_PERSISTENCE_QUEUE_NAME,
   TELEMETRY_QUEUE_NAME,
 } from './telemetry-queue.config';
 
-const POSTGRES_FOREIGN_KEY_VIOLATION = '23503';
 const TELEMETRY_SORTABLE_FIELDS = ['reading.recordedAt'];
 
 const latestCacheKey = (assetId: string) => `telemetry:latest:${assetId}`;
 
-function isForeignKeyViolation(err: unknown): boolean {
-  const e = err as { code?: string; driverError?: { code?: string } } | null;
-  return (
-    e?.code === POSTGRES_FOREIGN_KEY_VIOLATION ||
-    e?.driverError?.code === POSTGRES_FOREIGN_KEY_VIOLATION
-  );
+const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
+
+const errorStack = (err: unknown): string =>
+  err instanceof Error ? (err.stack ?? err.message) : String(err);
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  what: string,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${what} timed out after ${ms}ms`)),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
+
+type InsertResult =
+  | { status: 'persisted' }
+  | { status: 'dropped'; reason: 'unknown-asset' | 'permanent' }
+  | { status: 'transient'; error: unknown };
+
+export type DeferredPersistOutcome =
+  'persisted' | 'unknown-asset' | 'permanent';
 
 @Injectable()
 export class TelemetryService {
@@ -41,34 +78,45 @@ export class TelemetryService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @InjectQueue(TELEMETRY_QUEUE_NAME)
     private readonly telemetryQueue: Queue<TelemetryJobData>,
+    @InjectQueue(TELEMETRY_PERSISTENCE_QUEUE_NAME)
+    private readonly persistenceQueue: Queue<TelemetryPersistenceJobData>,
   ) {}
 
   async ingest(
     reading: TelemetryReadingDto,
     correlationId?: string,
   ): Promise<void> {
-    const persisted = await this.persist(reading);
-    if (!persisted) {
-      return;
+    const job: TelemetryPersistenceJobData = {
+      readingId: randomUUID(),
+      reading,
+      correlationId: correlationId ?? randomUUID(),
+    };
+
+    const result = await this.insertOnce(job.readingId, reading);
+    switch (result.status) {
+      case 'persisted':
+        await this.publishPersisted(job, 'live');
+        return;
+      case 'dropped':
+        return;
+      case 'transient':
+        await this.handOffToDurableQueue(job, result.error);
+        return;
     }
+  }
 
-    const jobCorrelationId = correlationId ?? randomUUID();
-
-    try {
-      await this.redis.set(
-        latestCacheKey(reading.assetId),
-        JSON.stringify(reading),
-      );
-      const jobData: TelemetryJobData = {
-        reading,
-        correlationId: jobCorrelationId,
-      };
-      await this.telemetryQueue.add('reading', jobData, TELEMETRY_JOB_OPTIONS);
-    } catch (err) {
-      this.logger.error(
-        `Failed to cache/enqueue telemetry reading for asset ${reading.assetId}`,
-        err instanceof Error ? err.stack : String(err),
-      );
+  async persistDeferred(
+    job: TelemetryPersistenceJobData,
+  ): Promise<DeferredPersistOutcome> {
+    const result = await this.insertOnce(job.readingId, job.reading);
+    switch (result.status) {
+      case 'persisted':
+        await this.publishPersisted(job, 'deferred');
+        return 'persisted';
+      case 'dropped':
+        return result.reason;
+      case 'transient':
+        throw result.error;
     }
   }
 
@@ -172,28 +220,125 @@ export class TelemetryService {
     }
   }
 
-  private async persist(reading: TelemetryReadingDto): Promise<boolean> {
+  private async insertOnce(
+    readingId: string,
+    reading: TelemetryReadingDto,
+  ): Promise<InsertResult> {
     try {
       await this.readings.insert({
+        id: readingId,
         assetId: reading.assetId,
         temperature: reading.temperature,
         vibration: reading.vibration,
         pressure: reading.pressure,
         recordedAt: new Date(reading.recordedAt),
       });
-      return true;
+      return { status: 'persisted' };
     } catch (err) {
-      if (isForeignKeyViolation(err)) {
-        this.logger.warn(
-          `Dropped telemetry reading for unknown asset ${reading.assetId}`,
+      switch (classifyPersistError(err)) {
+        case 'already-persisted':
+          return { status: 'persisted' };
+        case 'unknown-asset':
+          this.logger.warn(
+            `Dropped telemetry reading for unknown asset ${reading.assetId}`,
+          );
+          return { status: 'dropped', reason: 'unknown-asset' };
+        case 'permanent':
+          this.logger.error(
+            `Dropped telemetry reading ${readingId} for asset ${reading.assetId}: Postgres rejected it permanently (${errorMessage(err)}); payload=${JSON.stringify(reading)}`,
+            errorStack(err),
+          );
+          return { status: 'dropped', reason: 'permanent' };
+        case 'transient':
+          return { status: 'transient', error: err };
+      }
+    }
+  }
+
+  private async handOffToDurableQueue(
+    job: TelemetryPersistenceJobData,
+    cause: unknown,
+  ): Promise<void> {
+    const { assetId } = job.reading;
+    this.logger.warn(
+      `Transient Postgres failure persisting telemetry reading ${job.readingId} for asset ${assetId} (${errorMessage(cause)}); handing it to the durable persistence queue`,
+    );
+
+    let handOffError: unknown = cause;
+    for (let attempt = 1; attempt <= TELEMETRY_HANDOFF_ATTEMPTS; attempt++) {
+      try {
+        await withTimeout(
+          this.persistenceQueue.add('persist', job, {
+            ...TELEMETRY_PERSISTENCE_JOB_OPTIONS,
+            jobId: job.readingId,
+          }),
+          TELEMETRY_HANDOFF_ATTEMPT_TIMEOUT_MS,
+          'Enqueueing telemetry persistence job',
         );
+        return;
+      } catch (err) {
+        handOffError = err;
+        this.logger.warn(
+          `Could not enqueue telemetry reading ${job.readingId} for durable persistence (attempt ${attempt}/${TELEMETRY_HANDOFF_ATTEMPTS}): ${errorMessage(err)}`,
+        );
+        if (attempt < TELEMETRY_HANDOFF_ATTEMPTS) {
+          await delay(TELEMETRY_HANDOFF_RETRY_DELAY_MS * attempt);
+        }
+      }
+    }
+
+    this.logger.error(
+      `TELEMETRY READING LOST: ${job.readingId} could be neither persisted nor queued; payload=${JSON.stringify(job.reading)}`,
+      errorStack(handOffError),
+    );
+    throw new TelemetryNotPersistedError(assetId, job.readingId, handOffError);
+  }
+
+  private async publishPersisted(
+    job: TelemetryPersistenceJobData,
+    mode: 'live' | 'deferred',
+  ): Promise<void> {
+    const { reading, correlationId } = job;
+    try {
+      if (mode === 'deferred') {
+        await this.setLatestUnlessNewer(reading);
       } else {
-        this.logger.error(
-          `Failed to persist telemetry reading for asset ${reading.assetId}`,
-          err instanceof Error ? err.stack : String(err),
+        await this.redis.set(
+          latestCacheKey(reading.assetId),
+          JSON.stringify(reading),
         );
       }
-      return false;
+      const jobData: TelemetryJobData = { reading, correlationId };
+      await this.telemetryQueue.add('reading', jobData, TELEMETRY_JOB_OPTIONS);
+    } catch (err) {
+      if (mode === 'deferred') {
+        throw err;
+      }
+      this.logger.error(
+        `Failed to cache/enqueue telemetry reading for asset ${reading.assetId}`,
+        errorStack(err),
+      );
     }
+  }
+
+  private async setLatestUnlessNewer(
+    reading: TelemetryReadingDto,
+  ): Promise<void> {
+    const key = latestCacheKey(reading.assetId);
+    const raw = await this.redis.get(key);
+    if (raw) {
+      try {
+        const cached = JSON.parse(raw) as { recordedAt?: string };
+        if (
+          cached.recordedAt !== undefined &&
+          Date.parse(cached.recordedAt) > Date.parse(reading.recordedAt)
+        ) {
+          return;
+        }
+      } catch {
+        // Unreadable cache entry: overwrite it.
+      }
+    }
+    await this.redis.set(key, JSON.stringify(reading));
   }
 }

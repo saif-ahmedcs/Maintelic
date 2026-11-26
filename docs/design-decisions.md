@@ -35,9 +35,30 @@ WHERE "status" IN ('OPEN','ASSIGNED','IN_PROGRESS','BLOCKED')
 
 Two open auto-generated work orders for the same asset are structurally impossible, not just unlikely.
 
-## Telemetry is inserted directly, not queued a second time
+## Telemetry is inserted directly; only a failed insert goes through a queue
 
-A valid telemetry reading does three things on ingest: write the "latest" value to Redis, enqueue a `telemetry-processing` job for the condition-monitoring worker, and persist a row in `telemetry_readings`. That last step is a direct insert inside the MQTT handler rather than a second queue: it's just an insert, not an analysis step, and adding a second queue for it would be complexity without a corresponding benefit at this scale. The composite index `telemetry_readings(asset_id, recorded_at DESC)` keeps the realistic "recent readings for this asset" query fast without it.
+A valid telemetry reading does three things on ingest: persist a row in `telemetry_readings`, write the "latest" value to Redis, and enqueue a `telemetry-processing` job for the condition-monitoring worker. The insert is a direct call inside the MQTT handler, not a queue hop: it's just an insert, not an analysis step, and queueing every reading a second time would be complexity without a benefit at this scale. The composite index `telemetry_readings(asset_id, recorded_at DESC)` keeps the realistic "recent readings for this asset" query fast without it.
+
+**Why a failed insert cannot just be logged and dropped (BJM-2).** MQTT.js acknowledges a QoS 1 message (PUBACK) right after emitting it, without waiting for the async Nest handler. By the time the insert runs the broker already considers the message delivered and will never redeliver it, so the handler is the reading's only chance. Logging a Postgres failure and returning (the original behaviour) turned any connection reset, failover, pool exhaustion or restart into permanent data loss: about 60 readings per asset per minute at 1 Hz, and condition monitoring (which reads only `telemetry_readings`) blind for the whole window.
+
+**What happens now.** Insert errors are classified (`telemetry-persist-error.ts`):
+
+| Error                                                                                  | Treatment                                                                 |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| FK violation `23503` (unknown asset)                                                   | Dropped with a warning: retrying can never help.                          |
+| Other data / integrity errors (SQLSTATE class `22`, `23`)                              | Dropped with an error that includes the payload: the row can never fit.   |
+| Unique violation `23505` on the reading id                                             | Treated as success: an earlier attempt already stored this exact reading. |
+| Everything else (connection errors, `08*`, `53*`, `57P0x`, `25006`, timeouts, unknown) | Transient: handed to the durable `telemetry-persistence` queue.           |
+
+The default for an unrecognised error is "transient": retrying a reading too often costs a little, losing one costs data.
+
+A transient failure moves the reading straight into the `telemetry-persistence` BullMQ queue (Redis), so it survives a restart of the backend. `TelemetryPersistenceProcessor` re-inserts it with capped exponential backoff (1 s doubling to 30 s, +/-20% jitter, 1000 attempts, roughly 8 hours) and only then does what a live reading does after its insert: updates the "latest" cache (never overwriting a newer reading with a replayed older one) and enqueues the condition-monitoring job. A reading that Postgres rejects for good fails without retries; one that exhausts its retries stays in the failed set for 7 days (up to 100 000 jobs) and is logged with its full payload.
+
+**Idempotency.** The reading's primary key is generated once at ingest and carried in the job, and the queue job id is that same id. A retry after an ambiguous failure (the commit succeeded, the connection died before the acknowledgement) therefore hits the primary key instead of storing a duplicate, and a retried hand-off cannot enqueue the same reading twice. No migration is needed.
+
+**Remaining limits, stated plainly.** The reading is only lost if Postgres _and_ Redis are unreachable at the same moment: the hand-off to Redis is retried and time-boxed, then fails loudly (`TelemetryNotPersistedError`, logged with the full payload). The process crashing in the few milliseconds between PUBACK and the hand-off is the one window a broker-side fix (persistent MQTT session plus a PUBACK deferred until the reading is stored) would close; that was not done because it needs a fixed client id and shared subscriptions across replicas. Redis runs with `noeviction`, so an outage of many hours at fleet scale is bounded by Redis memory, not by the retry window.
+
+`backend/test/telemetry-persistence-recovery.e2e-spec.ts` runs against a real Redis and BullMQ (Postgres is a controllable fake) and covers an outage that outlasts several retries, a process restart mid-outage, an ambiguous commit, and an unknown asset.
 
 **What would change at real production scale:** monthly partitioning of `telemetry_readings`, explicitly out of scope here but called out rather than silently ignored.
 
