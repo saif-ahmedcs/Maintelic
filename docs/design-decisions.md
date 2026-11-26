@@ -68,6 +68,23 @@ The AI-generated diagnostic note attached to auto-created work orders and notifi
 
 The deterministic rule in condition monitoring always decides whether an alert fires and what status it sets; the AI only ever attaches commentary after that decision is already made.
 
+## Finished queue jobs are bounded (BJM-1)
+
+Every accepted telemetry reading enqueues a `telemetry-processing` job. BullMQ keeps a finished job (hash plus an entry in the `completed`/`failed` sorted set) indefinitely unless told otherwise, so at the simulator's rate (about 432k readings a day) Redis grew without limit until it ran out of memory, at which point `redis.set`/`queue.add` in `ingest()` failed silently and condition monitoring stopped.
+
+Retention is now configured in one place, `backend/src/common/queue/job-retention.ts`:
+
+- **Completed jobs:** kept at most 1 hour and at most 100 jobs. They carry no value once processed.
+- **Failed jobs:** kept at most 7 days and at most 1000 jobs, so failures stay diagnosable but a failure storm cannot fill Redis.
+
+It is applied three ways: as the root `defaultJobOptions` in `BullModule.forRoot` (so any future queue is bounded by default), as the `telemetry-processing` queue's own `defaultJobOptions` (shared by both modules that register it, via `telemetry-queue.config.ts`), and explicitly on the producer call in `TelemetryService.ingest`.
+
+`TelemetryQueueMaintenanceService` clears the backlog that already exists in Redis from before this fix: once at startup (in the background) and then hourly, it removes finished jobs older than the retention age and the oldest jobs beyond the retention count.
+
+`docker-compose.yml` now starts Redis with `--maxmemory` (default `512mb`, override with `REDIS_MAXMEMORY`) and `--maxmemory-policy noeviction`. `noeviction` is what BullMQ requires: evicting keys would corrupt queue state, so Redis rejects writes instead of dropping data.
+
+`backend/test/telemetry-queue-retention.e2e-spec.ts` runs against a real Redis and checks that completed and failed jobs (and their Redis hashes) stay within the caps, and that a legacy unbounded backlog is cleaned up.
+
 ## What would genuinely be done differently with more time
 
 - **TimescaleDB** for `telemetry_readings` if this needed to scale past a portfolio-sized demo: hypertables and native time-series compression would matter once reading volume is large and sustained; out of scope here per the brief.

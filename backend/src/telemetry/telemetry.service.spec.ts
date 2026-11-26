@@ -1,6 +1,7 @@
 import { Logger, NotFoundException } from '@nestjs/common';
 import { TelemetryReadingDto } from './dto/telemetry-reading.dto';
 import { TelemetryService } from './telemetry.service';
+import { TELEMETRY_JOB_OPTIONS } from './telemetry-queue.config';
 
 describe('TelemetryService', () => {
   let service: TelemetryService;
@@ -60,8 +61,28 @@ describe('TelemetryService', () => {
     expect(queue.add).toHaveBeenCalledWith(
       'reading',
       { reading, correlationId: expect.any(String) },
-      { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
+      TELEMETRY_JOB_OPTIONS,
     );
+  });
+
+  it('enqueues jobs with bounded retention for finished jobs (BJM-1)', async () => {
+    await service.ingest(reading);
+
+    const options = queue.add.mock.calls[0][2];
+    expect(options.attempts).toBe(3);
+    expect(options.backoff).toEqual({ type: 'exponential', delay: 1000 });
+    expect(options.removeOnComplete).toEqual({
+      age: expect.any(Number),
+      count: expect.any(Number),
+    });
+    expect(options.removeOnFail).toEqual({
+      age: expect.any(Number),
+      count: expect.any(Number),
+    });
+    expect(options.removeOnComplete.count).toBeGreaterThan(0);
+    expect(options.removeOnComplete.age).toBeGreaterThan(0);
+    expect(options.removeOnFail.count).toBeGreaterThan(0);
+    expect(options.removeOnFail.age).toBeGreaterThan(0);
   });
 
   it('carries an explicitly provided correlationId onto the queued job', async () => {
@@ -70,7 +91,7 @@ describe('TelemetryService', () => {
     expect(queue.add).toHaveBeenCalledWith(
       'reading',
       { reading, correlationId: 'corr-abc-123' },
-      { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
+      TELEMETRY_JOB_OPTIONS,
     );
   });
 
@@ -243,9 +264,12 @@ describe('TelemetryService', () => {
       expect(readingRepo.createQueryBuilder).toHaveBeenCalledTimes(1);
       expect(qb.getMany).toHaveBeenCalledTimes(1);
       expect(qb.distinctOn).toHaveBeenCalledWith(['reading.assetId']);
-      expect(qb.where).toHaveBeenCalledWith('reading.assetId IN (:...assetIds)', {
-        assetIds: [reading.assetId, assetTwoId],
-      });
+      expect(qb.where).toHaveBeenCalledWith(
+        'reading.assetId IN (:...assetIds)',
+        {
+          assetIds: [reading.assetId, assetTwoId],
+        },
+      );
       expect(qb.orderBy).toHaveBeenCalledWith('reading.assetId', 'ASC');
       expect(qb.addOrderBy).toHaveBeenCalledWith('reading.recordedAt', 'DESC');
     });

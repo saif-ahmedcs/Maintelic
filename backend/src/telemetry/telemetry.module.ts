@@ -7,11 +7,13 @@ import { TelemetryLatestController } from './telemetry-latest.controller';
 import { TelemetryReadingsController } from './telemetry-readings.controller';
 import { TelemetrySummaryController } from './telemetry-summary.controller';
 import { TelemetryService } from './telemetry.service';
+import { TelemetryQueueMaintenanceService } from './telemetry-queue-maintenance.service';
+import { telemetryQueueRegistration } from './telemetry-queue.config';
 import { TelemetryReading } from './entities/telemetry-reading.entity';
 
 @Module({
   imports: [
-    BullModule.registerQueue({ name: 'telemetry-processing' }),
+    BullModule.registerQueue(telemetryQueueRegistration),
     TypeOrmModule.forFeature([TelemetryReading]),
     AssetsModule,
   ],
@@ -21,6 +23,6 @@ import { TelemetryReading } from './entities/telemetry-reading.entity';
     TelemetrySummaryController,
     TelemetryLatestController,
   ],
-  providers: [TelemetryService],
+  providers: [TelemetryService, TelemetryQueueMaintenanceService],
 })
 export class TelemetryModule {}

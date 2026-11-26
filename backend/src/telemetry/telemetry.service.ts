@@ -13,6 +13,10 @@ import { TelemetryReadingResponseDto } from './dto/telemetry-reading-response.dt
 import { TelemetrySummaryResponseDto } from './dto/telemetry-summary-response.dto';
 import { TelemetryReading } from './entities/telemetry-reading.entity';
 import { TelemetryJobData } from './interfaces/telemetry-job-data.interface';
+import {
+  TELEMETRY_JOB_OPTIONS,
+  TELEMETRY_QUEUE_NAME,
+} from './telemetry-queue.config';
 
 const POSTGRES_FOREIGN_KEY_VIOLATION = '23503';
 const TELEMETRY_SORTABLE_FIELDS = ['reading.recordedAt'];
@@ -35,7 +39,7 @@ export class TelemetryService {
     @InjectRepository(TelemetryReading)
     private readonly readings: Repository<TelemetryReading>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    @InjectQueue('telemetry-processing')
+    @InjectQueue(TELEMETRY_QUEUE_NAME)
     private readonly telemetryQueue: Queue<TelemetryJobData>,
   ) {}
 
@@ -59,10 +63,7 @@ export class TelemetryService {
         reading,
         correlationId: jobCorrelationId,
       };
-      await this.telemetryQueue.add('reading', jobData, {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 1000 },
-      });
+      await this.telemetryQueue.add('reading', jobData, TELEMETRY_JOB_OPTIONS);
     } catch (err) {
       this.logger.error(
         `Failed to cache/enqueue telemetry reading for asset ${reading.assetId}`,

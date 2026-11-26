@@ -29,6 +29,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UserThrottlerGuard } from './common/throttler/user-throttler.guard';
 import { defaultThrottleLimit } from './common/throttler/default-throttle';
+import { DEFAULT_JOB_RETENTION_OPTIONS } from './common/queue/job-retention';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { defaultThrottleLimit } from './common/throttler/default-throttle';
           host: config.get<string>('REDIS_HOST'),
           port: config.get<number>('REDIS_PORT'),
         },
+        defaultJobOptions: DEFAULT_JOB_RETENTION_OPTIONS,
       }),
     }),
     ThrottlerModule.forRoot([

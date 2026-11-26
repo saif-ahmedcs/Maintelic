@@ -12,10 +12,11 @@ import { WorkOrder } from '../work-orders/entities/work-order.entity';
 import { ConditionMonitoringProcessor } from './condition-monitoring.processor';
 import { ConditionMonitoringService } from './condition-monitoring.service';
 import { ScheduledChecksService } from './scheduled-checks.service';
+import { telemetryQueueRegistration } from '../telemetry/telemetry-queue.config';
 
 @Module({
   imports: [
-    BullModule.registerQueue({ name: 'telemetry-processing' }),
+    BullModule.registerQueue(telemetryQueueRegistration),
     TypeOrmModule.forFeature([TelemetryReading, WorkOrder]),
     AuditModule,
     AssetHistoryModule,
