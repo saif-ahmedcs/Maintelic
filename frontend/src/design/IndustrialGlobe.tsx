@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  GEAR_SPIN_RATE,
   GLOBE_COLORS,
   GLOBE_RADIUS_RATIO,
   ORBITS,
@@ -7,9 +8,11 @@ import {
   SPIN_RATE,
   TRAIL_STEPS,
   VIEW_PITCH,
+  gearDepth,
   generateGlobePoints,
   orbitPoint,
   pointCountForSize,
+  projectGearPoint,
   transformPoint,
   twinkle,
   type GlobePoint,
@@ -22,6 +25,8 @@ export interface IndustrialGlobeProps {
 
 const MAX_DPR = 2;
 const STILL_TIME_MS = 4000;
+const ALPHA_LEVELS = 48;
+const TAU = Math.PI * 2;
 
 function prefersReducedMotion(): boolean {
   return (
@@ -122,6 +127,40 @@ export function IndustrialGlobe({
     const radius = center * GLOBE_RADIUS_RATIO;
     const unit = size / 560;
 
+    const n = points.length;
+    const baseX = new Float32Array(n);
+    const baseY = new Float32Array(n);
+    const baseZ = new Float32Array(n);
+    const phases = new Float32Array(n);
+    const speeds = new Float32Array(n);
+    const weights = new Float32Array(n);
+    const whites = new Uint8Array(n);
+    points.forEach((point, i) => {
+      baseX[i] = point.x;
+      baseY[i] = point.y;
+      baseZ[i] = point.z;
+      phases[i] = point.phase;
+      speeds[i] = point.speed;
+      weights[i] = point.weight;
+      whites[i] = point.isWhite ? 1 : 0;
+    });
+    const screenX = new Float32Array(n);
+    const screenY = new Float32Array(n);
+    const screenR = new Float32Array(n);
+    const bucketOf = new Uint8Array(n);
+    const order = new Uint16Array(n);
+    const view = new Float64Array(3);
+    const dotColors: string[] = [];
+    for (const color of [GLOBE_COLORS.teal, GLOBE_COLORS.white]) {
+      for (let level = 0; level <= ALPHA_LEVELS; level++) {
+        dotColors.push(`rgba(${color}, ${(level / ALPHA_LEVELS).toFixed(3)})`);
+      }
+    }
+    const bucketStart = new Int32Array(dotColors.length + 1);
+    const cursor = new Int32Array(dotColors.length);
+    const pitchCos = Math.cos(VIEW_PITCH);
+    const pitchSin = Math.sin(VIEW_PITCH);
+
     function drawOrbits(timeMs: number, front: boolean) {
       if (!ctx) return;
       const precession = timeMs * SPIN_RATE * 0.6;
@@ -184,32 +223,58 @@ export function IndustrialGlobe({
     function draw(timeMs: number) {
       if (!ctx) return;
       ctx.clearRect(0, 0, size, size);
-      const yaw = timeMs * SPIN_RATE;
+
+      const spin = timeMs * GEAR_SPIN_RATE;
+      const spinCos = Math.cos(spin);
+      const spinSin = Math.sin(spin);
 
       drawOrbits(timeMs, false);
       drawNodes(timeMs, false);
 
-      for (const point of points) {
-        const breathe = 1 + 0.012 * Math.sin(point.phase + timeMs * 0.0005);
-        const p = transformPoint(
-          { x: point.x * breathe, y: point.y * breathe, z: point.z * breathe },
-          yaw,
-          VIEW_PITCH,
+      bucketStart.fill(0);
+      for (let i = 0; i < n; i++) {
+        const breathe = 1 + 0.012 * Math.sin(phases[i] + timeMs * 0.0005);
+        projectGearPoint(
+          baseX[i] * breathe,
+          baseY[i] * breathe,
+          baseZ[i] * breathe,
+          spinCos,
+          spinSin,
+          pitchCos,
+          pitchSin,
+          view,
         );
-        const depth = (p.z + 1) / 2;
+        const depth = gearDepth(view[2]);
         const alpha =
           (0.12 + 0.88 * depth ** 1.5) *
-          twinkle(point.phase, point.speed, timeMs);
-        const r = unit * (0.5 + depth * 1.05);
-        ctx.fillStyle = `rgba(${point.isWhite ? GLOBE_COLORS.white : GLOBE_COLORS.teal}, ${alpha.toFixed(3)})`;
+          weights[i] *
+          twinkle(phases[i], speeds[i], timeMs);
+        const level = Math.min(ALPHA_LEVELS, Math.round(alpha * ALPHA_LEVELS));
+        const bucket = whites[i] * (ALPHA_LEVELS + 1) + level;
+        bucketOf[i] = bucket;
+        bucketStart[bucket + 1]++;
+        screenX[i] = center + view[0] * radius;
+        screenY[i] = center + view[1] * radius;
+        screenR[i] = unit * (0.5 + depth * 1.05);
+      }
+      for (let k = 0; k < dotColors.length; k++) {
+        bucketStart[k + 1] += bucketStart[k];
+        cursor[k] = bucketStart[k];
+      }
+      for (let i = 0; i < n; i++) {
+        order[cursor[bucketOf[i]]++] = i;
+      }
+      for (let k = 0; k < dotColors.length; k++) {
+        const from = bucketStart[k];
+        const to = bucketStart[k + 1];
+        if (from === to) continue;
+        ctx.fillStyle = dotColors[k];
         ctx.beginPath();
-        ctx.arc(
-          center + p.x * radius,
-          center + p.y * radius,
-          r,
-          0,
-          Math.PI * 2,
-        );
+        for (let j = from; j < to; j++) {
+          const i = order[j];
+          ctx.moveTo(screenX[i] + screenR[i], screenY[i]);
+          ctx.arc(screenX[i], screenY[i], screenR[i], 0, TAU);
+        }
         ctx.fill();
       }
 
