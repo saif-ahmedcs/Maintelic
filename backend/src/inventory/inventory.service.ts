@@ -22,17 +22,17 @@ import {
 } from './entities/inventory-transaction.entity';
 import { SparePart } from './entities/spare-part.entity';
 
-export interface ConsumeContext {
+export interface StockChangeContext {
   workOrderId?: string | null;
   createdByUserId: string | null;
 }
 
-export interface ConsumeResult {
+export interface StockTransactionResult {
   sparePart: SparePart;
   transaction: InventoryTransaction;
 }
 
-interface StockChangeResult extends ConsumeResult {
+interface StockChangeResult extends StockTransactionResult {
   quantityBefore: number;
 }
 
@@ -87,7 +87,7 @@ export class InventoryService {
     sparePartId: string,
     delta: number,
     reason: InventoryTransactionReason,
-    context: ConsumeContext,
+    context: StockChangeContext,
   ): Promise<StockChangeResult> {
     const part = await this.lockPart(manager, sparePartId);
 
@@ -262,8 +262,8 @@ export class InventoryService {
     manager: EntityManager,
     sparePartId: string,
     quantity: number,
-    context: ConsumeContext,
-  ): Promise<ConsumeResult> {
+    context: StockChangeContext,
+  ): Promise<StockTransactionResult> {
     const { sparePart, transaction } = await this.applyStockChange(
       manager,
       sparePartId,
@@ -278,7 +278,7 @@ export class InventoryService {
     id: string,
     dto: RestockSparePartDto,
     actor: RequestUser,
-  ): Promise<ConsumeResult> {
+  ): Promise<StockTransactionResult> {
     return this.dataSource.transaction(async (manager) => {
       const result = await this.applyStockChange(
         manager,
@@ -306,7 +306,7 @@ export class InventoryService {
     id: string,
     dto: AdjustSparePartDto,
     actor: RequestUser,
-  ): Promise<ConsumeResult> {
+  ): Promise<StockTransactionResult> {
     return this.dataSource.transaction(async (manager) => {
       const result = await this.applyStockChange(
         manager,

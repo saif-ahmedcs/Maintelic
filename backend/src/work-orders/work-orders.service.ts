@@ -21,7 +21,10 @@ import { User } from '../users/entities/user.entity';
 import { hasWorkOrderAssigneeRole } from '../users/work-order-eligibility';
 import { AssignWorkOrderDto } from './dto/assign-work-order.dto';
 import { BlockWorkOrderDto } from './dto/block-work-order.dto';
-import { CompleteWorkOrderDto } from './dto/complete-work-order.dto';
+import {
+  CompleteWorkOrderDto,
+  CompleteWorkOrderPartDto,
+} from './dto/complete-work-order.dto';
 import { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import { WorkOrderQueryDto } from './dto/work-order-query.dto';
 import { WorkOrderPart } from './entities/work-order-part.entity';
@@ -67,6 +70,18 @@ export class WorkOrdersService {
       actor.roles.includes(RoleName.ADMIN) ||
       actor.roles.includes(RoleName.SUPERVISOR)
     );
+  }
+
+  private assertAssigneeOrPrivileged(
+    workOrder: WorkOrder,
+    actor: RequestUser,
+    action: 'start' | 'block' | 'complete',
+  ): void {
+    if (workOrder.assignedToUserId !== actor.id && !this.isPrivileged(actor)) {
+      throw new ForbiddenException(
+        `Only the assigned technician, a supervisor, or an admin can ${action} this work order`,
+      );
+    }
   }
 
   private async lockWorkOrder(
@@ -116,6 +131,84 @@ export class WorkOrdersService {
     );
   }
 
+  private async consumeParts(
+    manager: EntityManager,
+    workOrder: WorkOrder,
+    parts: CompleteWorkOrderPartDto[],
+    actor: RequestUser,
+  ): Promise<{ createdParts: WorkOrderPart[]; totalCost: number }> {
+    const createdParts: WorkOrderPart[] = [];
+    let totalCost = 0;
+
+    for (const part of parts) {
+      const { sparePart } = await this.inventoryService.consume(
+        manager,
+        part.sparePartId,
+        part.quantityUsed,
+        { workOrderId: workOrder.id, createdByUserId: actor.id },
+      );
+
+      const workOrderPart = manager.create(WorkOrderPart, {
+        workOrderId: workOrder.id,
+        sparePartId: sparePart.id,
+        quantityUsed: part.quantityUsed,
+        unitCostAtCompletion: sparePart.unitCost,
+      });
+      createdParts.push(await manager.save(workOrderPart));
+
+      totalCost += sparePart.unitCost * part.quantityUsed;
+    }
+
+    return { createdParts, totalCost };
+  }
+
+  private async restoreAssetAfterCompletion(
+    manager: EntityManager,
+    assetId: string,
+  ): Promise<{
+    savedAsset: Asset;
+    assetStatusBefore: AssetStatus;
+    assetStatusChanged: boolean;
+  }> {
+    const asset = await this.lockAsset(manager, assetId);
+    const assetStatusBefore = asset.status;
+    const assetStatusChanged =
+      assetStatusBefore !== AssetStatus.OPERATIONAL &&
+      assetStatusBefore !== AssetStatus.DECOMMISSIONED;
+    let savedAsset = asset;
+    if (assetStatusChanged) {
+      asset.status = AssetStatus.OPERATIONAL;
+      savedAsset = await manager.save(asset);
+    }
+    await this.reconcileCriticalAssetNotification(manager, savedAsset);
+
+    return { savedAsset, assetStatusBefore, assetStatusChanged };
+  }
+
+  private async advanceMaintenancePlan(
+    manager: EntityManager,
+    maintenancePlanId: string,
+  ): Promise<void> {
+    const plan = await manager.findOne(MaintenancePlan, {
+      where: { id: maintenancePlanId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (plan) {
+      plan.lastCompletedAt = new Date();
+      plan.nextDueAt = daysFromNow(plan.intervalDays);
+      await manager.save(plan);
+
+      if (plan.nextDueAt && plan.nextDueAt > new Date()) {
+        await this.notificationsService.resolveActive(
+          manager,
+          NotificationType.OVERDUE_MAINTENANCE,
+          'MaintenancePlan',
+          plan.id,
+        );
+      }
+    }
+  }
+
   async findAll(query: WorkOrderQueryDto): Promise<PaginatedResult<WorkOrder>> {
     const qb = this.workOrderRepo.createQueryBuilder('workOrder');
     if (query.assetId) {
@@ -154,8 +247,6 @@ export class WorkOrdersService {
     actor: RequestUser,
   ): Promise<WorkOrder> {
     return this.dataSource.transaction(async (manager) => {
-      // Locked so a concurrent decommission cannot land between this check
-      // and the insert.
       const asset = await this.lockAsset(manager, dto.assetId);
       if (asset.status === AssetStatus.DECOMMISSIONED) {
         throw new ConflictException(
@@ -312,14 +403,7 @@ export class WorkOrdersService {
     return this.dataSource.transaction(async (manager) => {
       const workOrder = await this.lockWorkOrder(manager, id);
 
-      if (
-        workOrder.assignedToUserId !== actor.id &&
-        !this.isPrivileged(actor)
-      ) {
-        throw new ForbiddenException(
-          'Only the assigned technician, a supervisor, or an admin can start this work order',
-        );
-      }
+      this.assertAssigneeOrPrivileged(workOrder, actor, 'start');
 
       assertValidWorkOrderTransition(
         workOrder.status,
@@ -354,14 +438,7 @@ export class WorkOrdersService {
     return this.dataSource.transaction(async (manager) => {
       const workOrder = await this.lockWorkOrder(manager, id);
 
-      if (
-        workOrder.assignedToUserId !== actor.id &&
-        !this.isPrivileged(actor)
-      ) {
-        throw new ForbiddenException(
-          'Only the assigned technician, a supervisor, or an admin can block this work order',
-        );
-      }
+      this.assertAssigneeOrPrivileged(workOrder, actor, 'block');
 
       assertValidWorkOrderTransition(workOrder.status, WorkOrderStatus.BLOCKED);
 
@@ -426,14 +503,7 @@ export class WorkOrdersService {
     return this.dataSource.transaction(async (manager) => {
       const workOrder = await this.lockWorkOrder(manager, id);
 
-      if (
-        workOrder.assignedToUserId !== actor.id &&
-        !this.isPrivileged(actor)
-      ) {
-        throw new ForbiddenException(
-          'Only the assigned technician, a supervisor, or an admin can complete this work order',
-        );
-      }
+      this.assertAssigneeOrPrivileged(workOrder, actor, 'complete');
 
       assertValidWorkOrderTransition(
         workOrder.status,
@@ -441,28 +511,12 @@ export class WorkOrdersService {
       );
 
       const before = { status: workOrder.status };
-      const parts = dto.parts ?? [];
-      const createdParts: WorkOrderPart[] = [];
-      let totalCost = 0;
-
-      for (const part of parts) {
-        const { sparePart } = await this.inventoryService.consume(
-          manager,
-          part.sparePartId,
-          part.quantityUsed,
-          { workOrderId: workOrder.id, createdByUserId: actor.id },
-        );
-
-        const workOrderPart = manager.create(WorkOrderPart, {
-          workOrderId: workOrder.id,
-          sparePartId: sparePart.id,
-          quantityUsed: part.quantityUsed,
-          unitCostAtCompletion: sparePart.unitCost,
-        });
-        createdParts.push(await manager.save(workOrderPart));
-
-        totalCost += sparePart.unitCost * part.quantityUsed;
-      }
+      const { createdParts, totalCost } = await this.consumeParts(
+        manager,
+        workOrder,
+        dto.parts ?? [],
+        actor,
+      );
 
       workOrder.status = WorkOrderStatus.COMPLETED;
       workOrder.completedAt = new Date();
@@ -470,37 +524,11 @@ export class WorkOrdersService {
       const savedWorkOrder = await manager.save(workOrder);
       savedWorkOrder.workOrderParts = createdParts;
 
-      const asset = await this.lockAsset(manager, workOrder.assetId);
-      const assetStatusBefore = asset.status;
-      const assetStatusChanged =
-        assetStatusBefore !== AssetStatus.OPERATIONAL &&
-        assetStatusBefore !== AssetStatus.DECOMMISSIONED;
-      let savedAsset = asset;
-      if (assetStatusChanged) {
-        asset.status = AssetStatus.OPERATIONAL;
-        savedAsset = await manager.save(asset);
-      }
-      await this.reconcileCriticalAssetNotification(manager, savedAsset);
+      const { savedAsset, assetStatusBefore, assetStatusChanged } =
+        await this.restoreAssetAfterCompletion(manager, workOrder.assetId);
 
       if (workOrder.maintenancePlanId) {
-        const plan = await manager.findOne(MaintenancePlan, {
-          where: { id: workOrder.maintenancePlanId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (plan) {
-          plan.lastCompletedAt = new Date();
-          plan.nextDueAt = daysFromNow(plan.intervalDays);
-          await manager.save(plan);
-
-          if (plan.nextDueAt && plan.nextDueAt > new Date()) {
-            await this.notificationsService.resolveActive(
-              manager,
-              NotificationType.OVERDUE_MAINTENANCE,
-              'MaintenancePlan',
-              plan.id,
-            );
-          }
-        }
+        await this.advanceMaintenancePlan(manager, workOrder.maintenancePlanId);
       }
 
       await this.auditService.record(manager, {
