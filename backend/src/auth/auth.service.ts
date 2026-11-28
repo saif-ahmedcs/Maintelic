@@ -8,11 +8,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import { DataSource, EntityManager, IsNull, Not, Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
+import { BCRYPT_SALT_ROUNDS, refreshTokenLifetimeMs } from './auth.constants';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { InvalidCurrentPasswordException } from './exceptions/invalid-current-password.exception';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
-
-const BCRYPT_SALT_ROUNDS = 10;
 
 export const REFRESH_ROTATION_GRACE_MS = 10_000;
 
@@ -194,8 +193,8 @@ export class AuthService {
       : this.refreshTokenRepo;
     const token = randomBytes(64).toString('hex');
     const tokenHash = this.hashToken(token);
-    const days = this.config.get<number>('JWT_REFRESH_EXPIRES_IN_DAYS') ?? 7;
-    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const lifetimeMs = refreshTokenLifetimeMs(this.config);
+    const expiresAt = new Date(Date.now() + lifetimeMs);
 
     const record = repo.create({
       userId,

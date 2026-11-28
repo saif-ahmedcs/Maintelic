@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
+import { BCRYPT_SALT_ROUNDS } from '../auth/auth.constants';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
 import { RequestUser } from '../auth/interfaces/request-user.interface';
 import { paginate, PaginatedResult } from '../common/pagination/paginate';
@@ -26,8 +27,6 @@ import {
 import { Role, RoleName } from './entities/role.entity';
 import { User } from './entities/user.entity';
 import { hasWorkOrderAssigneeRole } from './work-order-eligibility';
-
-const BCRYPT_SALT_ROUNDS = 10;
 
 const SORTABLE_FIELDS = ['user.email', 'user.name', 'user.createdAt'];
 
@@ -61,14 +60,6 @@ export class UsersService {
 
   findById(id: string): Promise<User | null> {
     return this.userRepo.findOne({ where: { id } });
-  }
-
-  create(partial: Partial<User>): User {
-    return this.userRepo.create(partial);
-  }
-
-  save(user: User): Promise<User> {
-    return this.userRepo.save(user);
   }
 
   /* GET /users */

@@ -32,6 +32,7 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import type { RequestUser } from './interfaces/request-user.interface';
 import { User } from '../users/entities/user.entity';
 import { AUTH_LOGIN_THROTTLE, AUTH_REFRESH_THROTTLE } from './auth-rate-limit';
+import { refreshTokenLifetimeMs } from './auth.constants';
 
 const REFRESH_COOKIE_NAME = 'refresh_token';
 
@@ -151,8 +152,7 @@ export class AuthController {
     @CurrentUser() actor: RequestUser,
     @Req() req: Request,
   ): Promise<void> {
-    const presentedRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME] as
-      string | undefined;
+    const presentedRefreshToken = this.readRefreshCookie(req);
     await this.authService.changePassword(
       actor.id,
       dto.currentPassword,
@@ -179,19 +179,22 @@ export class AuthController {
     req: Request,
     dto: RefreshDto,
   ): string | undefined {
-    const cookieToken = req.cookies?.[REFRESH_COOKIE_NAME] as
-      string | undefined;
+    const cookieToken = this.readRefreshCookie(req);
     return cookieToken ?? dto.refreshToken;
   }
 
+  private readRefreshCookie(req: Request): string | undefined {
+    return req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
+  }
+
   private setRefreshCookie(res: Response, token: string): void {
-    const days = this.config.get<number>('JWT_REFRESH_EXPIRES_IN_DAYS') ?? 7;
+    const maxAge = refreshTokenLifetimeMs(this.config);
     res.cookie(REFRESH_COOKIE_NAME, token, {
       httpOnly: true,
       secure: this.config.get<string>('NODE_ENV') === 'production',
       sameSite: 'strict',
       path: '/auth',
-      maxAge: days * 24 * 60 * 60 * 1000,
+      maxAge,
     });
   }
 }
