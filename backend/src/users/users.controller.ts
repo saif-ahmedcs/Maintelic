@@ -21,6 +21,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
+import { mapPaginated } from '../common/pagination/paginate';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
@@ -50,10 +51,7 @@ export class UsersController {
   @ApiOkResponse({ type: UserResponseDto, isArray: true })
   async findAll(@Query() query: UserQueryDto) {
     const result = await this.usersService.findAllPaginated(query);
-    return {
-      data: result.data.map((user) => UserResponseDto.fromEntity(user)),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (user) => UserResponseDto.fromEntity(user));
   }
 
   @Post()

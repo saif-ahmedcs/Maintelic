@@ -20,6 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
+import { mapPaginated } from '../common/pagination/paginate';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { RoleName } from '../users/entities/role.entity';
 import { CreateLocationDto } from './dto/create-location.dto';
@@ -43,12 +44,9 @@ export class LocationsController {
   })
   async findAll(@Query() query: PaginationQueryDto) {
     const result = await this.locationsService.findAll(query);
-    return {
-      data: result.data.map((location) =>
-        LocationResponseDto.fromEntity(location),
-      ),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (location) =>
+      LocationResponseDto.fromEntity(location),
+    );
   }
 
   @Get(':id')

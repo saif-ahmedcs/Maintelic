@@ -20,6 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
+import { mapPaginated } from '../common/pagination/paginate';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { RoleName } from '../users/entities/role.entity';
 import { CreatePlantDto } from './dto/create-plant.dto';
@@ -43,10 +44,7 @@ export class PlantsController {
   })
   async findAll(@Query() query: PaginationQueryDto) {
     const result = await this.plantsService.findAll(query);
-    return {
-      data: result.data.map((plant) => PlantResponseDto.fromEntity(plant)),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (plant) => PlantResponseDto.fromEntity(plant));
   }
 
   @Get(':id')

@@ -4,7 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { Asset, AssetStatus } from '../assets/entities/asset.entity';
 import { AuditService } from '../audit/audit.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
@@ -50,15 +55,7 @@ export class MaintenancePlansService {
     query: PaginationQueryDto,
   ): Promise<PaginatedResult<MaintenancePlan>> {
     const { page, limit } = query;
-    const qb = this.planRepo
-      .createQueryBuilder('plan')
-      .innerJoin('plan.asset', 'asset')
-      .where('plan.active = :active', { active: true })
-      .andWhere('asset.status <> :decommissioned', {
-        decommissioned: AssetStatus.DECOMMISSIONED,
-      })
-      .andWhere('plan.nextDueAt <= :now', { now: new Date() })
-      .orderBy('plan.nextDueAt', 'ASC')
+    const qb = this.buildDueQuery()
       .skip((page - 1) * limit)
       .take(limit);
 
@@ -70,6 +67,10 @@ export class MaintenancePlansService {
   }
 
   async findAllDue(): Promise<MaintenancePlan[]> {
+    return this.buildDueQuery().getMany();
+  }
+
+  private buildDueQuery(): SelectQueryBuilder<MaintenancePlan> {
     return this.planRepo
       .createQueryBuilder('plan')
       .innerJoin('plan.asset', 'asset')
@@ -78,8 +79,7 @@ export class MaintenancePlansService {
         decommissioned: AssetStatus.DECOMMISSIONED,
       })
       .andWhere('plan.nextDueAt <= :now', { now: new Date() })
-      .orderBy('plan.nextDueAt', 'ASC')
-      .getMany();
+      .orderBy('plan.nextDueAt', 'ASC');
   }
 
   async findOne(id: string): Promise<MaintenancePlan> {

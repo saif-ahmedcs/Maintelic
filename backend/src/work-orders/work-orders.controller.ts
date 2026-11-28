@@ -21,6 +21,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
+import { mapPaginated } from '../common/pagination/paginate';
 import { RoleName } from '../users/entities/role.entity';
 import { AssignWorkOrderDto } from './dto/assign-work-order.dto';
 import { BlockWorkOrderDto } from './dto/block-work-order.dto';
@@ -50,12 +51,9 @@ export class WorkOrdersController {
   })
   async findAll(@Query() query: WorkOrderQueryDto) {
     const result = await this.workOrdersService.findAll(query);
-    return {
-      data: result.data.map((workOrder) =>
-        WorkOrderResponseDto.fromEntity(workOrder),
-      ),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (workOrder) =>
+      WorkOrderResponseDto.fromEntity(workOrder),
+    );
   }
 
   @Get(':id')

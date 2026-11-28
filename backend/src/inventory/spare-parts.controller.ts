@@ -21,6 +21,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
+import { mapPaginated } from '../common/pagination/paginate';
 import { RoleName } from '../users/entities/role.entity';
 import { AdjustSparePartDto } from './dto/adjust-spare-part.dto';
 import { CreateSparePartDto } from './dto/create-spare-part.dto';
@@ -50,10 +51,9 @@ export class SparePartsController {
   })
   async findAll(@Query() query: SparePartQueryDto) {
     const result = await this.inventoryService.findAll(query);
-    return {
-      data: result.data.map((part) => SparePartResponseDto.fromEntity(part)),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (part) =>
+      SparePartResponseDto.fromEntity(part),
+    );
   }
 
   @Get(':id/transactions')
@@ -71,12 +71,9 @@ export class SparePartsController {
     @Query() query: InventoryTransactionQueryDto,
   ) {
     const result = await this.inventoryService.findTransactions(id, query);
-    return {
-      data: result.data.map((transaction) =>
-        InventoryTransactionResponseDto.fromEntity(transaction),
-      ),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (transaction) =>
+      InventoryTransactionResponseDto.fromEntity(transaction),
+    );
   }
 
   @Get(':id')

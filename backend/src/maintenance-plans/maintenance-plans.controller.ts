@@ -20,6 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
+import { mapPaginated } from '../common/pagination/paginate';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { RoleName } from '../users/entities/role.entity';
 import { CreateMaintenancePlanDto } from './dto/create-maintenance-plan.dto';
@@ -46,12 +47,9 @@ export class MaintenancePlansController {
   })
   async findAll(@Query() query: MaintenancePlanQueryDto) {
     const result = await this.plansService.findAll(query);
-    return {
-      data: result.data.map((plan) =>
-        MaintenancePlanResponseDto.fromEntity(plan),
-      ),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (plan) =>
+      MaintenancePlanResponseDto.fromEntity(plan),
+    );
   }
 
   @Get('due')
@@ -61,12 +59,9 @@ export class MaintenancePlansController {
   @ApiOkResponse({ type: MaintenancePlanResponseDto, isArray: true })
   async findDue(@Query() query: PaginationQueryDto) {
     const result = await this.plansService.findDue(query);
-    return {
-      data: result.data.map((plan) =>
-        MaintenancePlanResponseDto.fromEntity(plan),
-      ),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (plan) =>
+      MaintenancePlanResponseDto.fromEntity(plan),
+    );
   }
 
   @Get(':id')

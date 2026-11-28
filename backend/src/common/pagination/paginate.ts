@@ -40,3 +40,13 @@ export async function paginate<T extends ObjectLiteral>(
     meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
 }
+
+export function mapPaginated<T, R>(
+  result: PaginatedResult<T>,
+  mapItem: (item: T) => R,
+): PaginatedResult<R> {
+  return {
+    data: result.data.map((item) => mapItem(item)),
+    meta: result.meta,
+  };
+}

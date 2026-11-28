@@ -17,6 +17,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { RequestUser } from '../auth/interfaces/request-user.interface';
+import { mapPaginated } from '../common/pagination/paginate';
 import { RoleName } from '../users/entities/role.entity';
 import { NotificationQueryDto } from './dto/notification-query.dto';
 import { NotificationResponseDto } from './dto/notification-response.dto';
@@ -41,12 +42,9 @@ export class NotificationsController {
   })
   async findAll(@Query() query: NotificationQueryDto) {
     const result = await this.notificationsService.findAll(query);
-    return {
-      data: result.data.map((notification) =>
-        NotificationResponseDto.fromEntity(notification),
-      ),
-      meta: result.meta,
-    };
+    return mapPaginated(result, (notification) =>
+      NotificationResponseDto.fromEntity(notification),
+    );
   }
 
   @Patch(':id/acknowledge')
